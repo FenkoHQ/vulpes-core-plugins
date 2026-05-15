@@ -1,0 +1,19 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: observer-prometheus
+version: 0.1.0
+entrypoint: observer-prometheus
+capabilities:
+  - observer
+config_schema:
+  type: object
+  properties:
+    listen: {type: string}
+    path: {type: string}
+    namespace: {type: string}
+    enable_tenant_labels: {type: boolean}
+permissions:
+  network:
+    inbound:
+      - 127.0.0.1:9090
+  data: {}
