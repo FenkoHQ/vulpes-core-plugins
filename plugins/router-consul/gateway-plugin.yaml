@@ -1,0 +1,23 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: router-consul
+version: 0.1.0
+entrypoint: router-consul
+capabilities:
+  - router
+config_schema:
+  type: object
+  properties:
+    address: {type: string}
+    token: {type: string, secret: true}
+    service: {type: string}
+    scheme: {type: string}
+    provider_instance: {type: string}
+    strategy: {type: string}
+permissions:
+  network:
+    outbound:
+      - "*:8500"
+  secrets:
+    read:
+      - CONSUL_HTTP_TOKEN

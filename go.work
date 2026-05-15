@@ -6,6 +6,8 @@ use (
 	./plugins/observer-prometheus
 	./plugins/observer-s3-transcripts
 	./plugins/observer-stdout
+	./plugins/prompt-context-injector
+	./plugins/router-consul
 	./plugins/router-litellm
 	./plugins/router-weighted
 	./plugins/upstream-openai

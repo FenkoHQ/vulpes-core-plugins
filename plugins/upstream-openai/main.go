@@ -44,7 +44,11 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/chat/completions", bytes.NewReader(payload))
+	baseURL := p.baseURL
+	if req.Properties["base_url"] != "" {
+		baseURL = strings.TrimRight(req.Properties["base_url"], "/")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

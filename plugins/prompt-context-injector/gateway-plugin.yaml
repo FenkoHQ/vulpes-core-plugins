@@ -1,0 +1,16 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: prompt-context-injector
+version: 0.1.0
+entrypoint: prompt-context-injector
+capabilities:
+  - prompt_provider
+config_schema:
+  type: object
+  properties:
+    rules:
+      type: array
+permissions:
+  data:
+    read_prompt: true
+    modify_request: true
