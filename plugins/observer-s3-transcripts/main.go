@@ -54,8 +54,8 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	p.prefix = strings.Trim(stringValue(cfg["prefix"]), "/")
 	p.endpoint = stringValue(cfg["endpoint"])
 	p.region = firstString(cfg["region"], "us-east-1")
-	p.accessKey = firstString(cfg["access_key_id"], cfg["access_key"], secrets["S3_ACCESS_KEY_ID"], secrets["AWS_ACCESS_KEY_ID"])
-	p.secretKey = firstString(cfg["secret_access_key"], cfg["secret_key"], secrets["S3_SECRET_ACCESS_KEY"], secrets["AWS_SECRET_ACCESS_KEY"])
+	p.accessKey = firstString(cfg["access_key_id"], cfg["access_key"], secrets["R2_ACCESS_KEY_ID"], secrets["S3_ACCESS_KEY_ID"], secrets["AWS_ACCESS_KEY_ID"])
+	p.secretKey = firstString(cfg["secret_access_key"], cfg["secret_key"], secrets["R2_SECRET_ACCESS_KEY"], secrets["S3_SECRET_ACCESS_KEY"], secrets["AWS_SECRET_ACCESS_KEY"])
 	p.sessionToken = firstString(cfg["session_token"], secrets["AWS_SESSION_TOKEN"])
 	p.forcePathStyle = true
 	if v, ok := cfg["force_path_style"].(bool); ok {
@@ -185,7 +185,7 @@ func main() {
 			Name:         "observer-s3-transcripts",
 			Version:      "0.1.0",
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityObserver, Name: "s3-transcripts", Version: "0.1.0"}},
-			Permissions:  sdk.Permissions{SecretNames: []string{"S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
+			Permissions:  sdk.Permissions{SecretNames: []string{"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
 		Schema:     `{"type":"object","required":["bucket"],"properties":{"bucket":{"type":"string"},"prefix":{"type":"string"},"endpoint":{"type":"string"},"region":{"type":"string"},"access_key_id":{"type":"string"},"secret_access_key":{"type":"string"},"session_token":{"type":"string"},"force_path_style":{"type":"boolean"},"store_all_events":{"type":"boolean"}}}`,
 		Configurer: p,

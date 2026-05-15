@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -62,6 +63,9 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 		msg := readLimit(resp.Body, 4096)
 		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}}, nil
 	}
+	if req.Request.Stream {
+		return p.streamChunks(resp.Body, req), nil
+	}
 	var out openAIChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_decode_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
@@ -104,7 +108,7 @@ func (p *plugin) openAIRequest(req sdk.InvokeRequest) map[string]any {
 	body := map[string]any{
 		"model":    req.ProviderModel,
 		"messages": req.Request.Messages,
-		"stream":   false,
+		"stream":   req.Request.Stream,
 	}
 	if req.Request.Temperature != nil {
 		body["temperature"] = *req.Request.Temperature
@@ -127,6 +131,39 @@ func (p *plugin) openAIRequest(req sdk.InvokeRequest) map[string]any {
 		}
 	}
 	return body
+}
+
+func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.ResponseChunk {
+	var chunks []sdk.ResponseChunk
+	s := bufio.NewScanner(r)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			break
+		}
+		var ev openAIStreamChunk
+		if err := json.Unmarshal([]byte(data), &ev); err != nil {
+			continue
+		}
+		for _, choice := range ev.Choices {
+			content := choice.Delta.Content
+			if content == "" {
+				content = choice.Delta.ReasoningContent
+			}
+			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content}, FinishReason: choice.FinishReason}}}})
+		}
+		if ev.Usage.TotalTokens > 0 {
+			chunks = append(chunks, sdk.ResponseChunk{Usage: &sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: ev.Usage.PromptTokens, OutputTokens: ev.Usage.CompletionTokens, TotalTokens: ev.Usage.TotalTokens}})
+		}
+	}
+	if err := s.Err(); err != nil {
+		chunks = append(chunks, sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}})
+	}
+	return chunks
 }
 
 func (p *plugin) responseChunks(req sdk.InvokeRequest, out openAIChatResponse) []sdk.ResponseChunk {
@@ -152,6 +189,27 @@ func (p *plugin) addHeaders(req *http.Request) {
 	if p.organization != "" {
 		req.Header.Set("OpenAI-Organization", p.organization)
 	}
+}
+
+type openAIStreamChunk struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Index int `json:"index"`
+		Delta struct {
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+		} `json:"delta"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+		TotalTokens      int64 `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 type openAIChatResponse struct {
@@ -206,7 +264,7 @@ func main() {
 			Name:         "upstream-openai",
 			Version:      "0.1.0",
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityUpstreamProvider, Name: "openai-chat-completions", Version: "0.1.0"}},
-			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443"}, SecretNames: []string{"OPENAI_API_KEY"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
+			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443"}, SecretNames: []string{"OPENAI_API_KEY", "ALIAS_API_KEY", "LITELLM_API_KEY"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
 		Schema:           `{"type":"object","required":["api_key"],"properties":{"base_url":{"type":"string"},"api_key":{"type":"string"},"organization":{"type":"string"},"timeout_seconds":{"type":"number"}}}`,
 		Configurer:       p,
