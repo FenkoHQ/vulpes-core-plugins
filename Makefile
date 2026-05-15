@@ -1,6 +1,6 @@
 .PHONY: test lint build clean
 
-PLUGINS := authn-static-api-key router-weighted router-litellm upstream-openai observer-stdout observer-prometheus
+PLUGINS := authn-static-api-key router-weighted router-litellm upstream-openai observer-stdout observer-prometheus observer-otel observer-s3-transcripts
 
 PACKAGES := ./sdk \
 	./plugins/authn-static-api-key \
@@ -8,7 +8,9 @@ PACKAGES := ./sdk \
 	./plugins/router-litellm \
 	./plugins/upstream-openai \
 	./plugins/observer-stdout \
-	./plugins/observer-prometheus
+	./plugins/observer-prometheus \
+	./plugins/observer-otel \
+	./plugins/observer-s3-transcripts
 
 test:
 	go test $(PACKAGES)
