@@ -1,0 +1,29 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: authn-static-api-key
+version: 0.1.0
+entrypoint: authn-static-api-key
+capabilities:
+  - authenticator
+config_schema:
+  type: object
+  required: [keys]
+  properties:
+    keys:
+      type: array
+      items:
+        type: object
+        required: [value]
+        properties:
+          id: {type: string}
+          value: {type: string, secret: true}
+          tenant: {type: string}
+          subject: {type: string}
+permissions:
+  data:
+    read_headers: true
+  secrets:
+    read:
+      - GATEWAY_API_KEY
+      - DEV_API_KEY
+      - VULPES_API_KEY

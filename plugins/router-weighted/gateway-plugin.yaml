@@ -1,0 +1,15 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: router-weighted
+version: 0.1.0
+entrypoint: router-weighted
+capabilities:
+  - router
+config_schema:
+  type: object
+  properties:
+    strategy:
+      type: string
+      enum: [weighted, shuffle, ordered, fallback]
+permissions:
+  data: {}

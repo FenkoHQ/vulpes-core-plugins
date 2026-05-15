@@ -1,0 +1,9 @@
+go 1.25.0
+
+use (
+	./plugins/authn-static-api-key
+	./plugins/observer-stdout
+	./plugins/router-weighted
+	./plugins/upstream-openai
+	./sdk
+)

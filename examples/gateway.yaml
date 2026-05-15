@@ -1,0 +1,64 @@
+server:
+  listen: 127.0.0.1:8080
+  request_timeout: 120s
+  stream_idle_timeout: 60s
+
+secrets:
+  env:
+    enabled: true
+
+plugins:
+  - name: authn-static
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/authn-static-api-key
+    capabilities: [authenticator]
+    fail_mode: closed
+    config:
+      keys:
+        - id: local-dev
+          value: ${secret:GATEWAY_API_KEY}
+          tenant: dev
+          subject: local-dev
+
+  - name: weighted-router
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/router-weighted
+    capabilities: [router]
+    fail_mode: closed
+    config:
+      strategy: weighted
+
+  - name: openai
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/upstream-openai
+    capabilities: [upstream_provider]
+    fail_mode: closed
+    config:
+      base_url: https://api.openai.com/v1
+      api_key: ${secret:OPENAI_API_KEY}
+
+  - name: stdout
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/observer-stdout
+    capabilities: [observer]
+    fail_mode: open
+    config:
+      pretty: false
+
+pipeline:
+  authenticator: authn-static
+  router: weighted-router
+  upstream_providers: [openai]
+  observers: [stdout]
+
+models:
+  aliases:
+    gpt-4o-mini:
+      candidates:
+        - provider: openai
+          model: gpt-4o-mini
+          weight: 100

@@ -1,0 +1,25 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: upstream-openai
+version: 0.1.0
+entrypoint: upstream-openai
+capabilities:
+  - upstream_provider
+config_schema:
+  type: object
+  required: [api_key]
+  properties:
+    base_url: {type: string}
+    api_key: {type: string, secret: true}
+    organization: {type: string}
+    timeout_seconds: {type: number}
+permissions:
+  network:
+    outbound:
+      - api.openai.com:443
+  data:
+    read_prompt: true
+    read_response: true
+  secrets:
+    read:
+      - OPENAI_API_KEY

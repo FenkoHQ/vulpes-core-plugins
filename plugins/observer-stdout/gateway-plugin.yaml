@@ -1,0 +1,13 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: observer-stdout
+version: 0.1.0
+entrypoint: observer-stdout
+capabilities:
+  - observer
+config_schema:
+  type: object
+  properties:
+    pretty: {type: boolean}
+permissions:
+  data: {}
