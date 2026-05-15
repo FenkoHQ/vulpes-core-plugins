@@ -262,3 +262,17 @@ type GatewayEvent struct {
 	Usage             Usage             `json:"usage,omitempty"`
 	Error             map[string]string `json:"error,omitempty"`
 }
+
+type PromptResolveRequest struct {
+	Context   CallContext       `json:"context"`
+	Identity  Identity          `json:"identity"`
+	PromptRef string            `json:"prompt_ref"`
+	Version   string            `json:"version,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+}
+
+type PromptResolveResponse struct {
+	Messages        []ChatMessage     `json:"messages"`
+	ResolvedVersion string            `json:"resolved_version,omitempty"`
+	Properties      map[string]string `json:"properties,omitempty"`
+}

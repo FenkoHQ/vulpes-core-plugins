@@ -31,6 +31,9 @@ type UpstreamProvider interface {
 type Observer interface {
 	Emit(context.Context, []GatewayEvent) error
 }
+type PromptProvider interface {
+	ResolvePrompt(context.Context, PromptResolveRequest) (PromptResolveResponse, error)
+}
 
 type Service struct {
 	Metadata Metadata
@@ -41,6 +44,7 @@ type Service struct {
 	Router           Router
 	UpstreamProvider UpstreamProvider
 	Observer         Observer
+	PromptProvider   PromptProvider
 }
 
 func init() {
@@ -208,6 +212,18 @@ func (s *Service) Emit(events []GatewayEvent, resp *struct{}) error {
 		return ErrNotImplemented
 	}
 	return s.Observer.Emit(context.Background(), events)
+}
+
+func (s *Service) ResolvePrompt(req PromptResolveRequest, resp *PromptResolveResponse) error {
+	if s.PromptProvider == nil {
+		return ErrNotImplemented
+	}
+	out, err := s.PromptProvider.ResolvePrompt(contextFromCall(req.Context), req)
+	if err != nil {
+		return err
+	}
+	*resp = out
+	return nil
 }
 
 func contextFromCall(c CallContext) context.Context {
