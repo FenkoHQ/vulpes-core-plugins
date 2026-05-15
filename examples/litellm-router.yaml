@@ -1,0 +1,77 @@
+server:
+  listen: 127.0.0.1:8080
+  request_timeout: 120s
+  stream_idle_timeout: 60s
+
+secrets:
+  env:
+    enabled: true
+
+observability:
+  flush_interval: 500ms
+
+plugins:
+  - name: authn-static
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/authn-static-api-key
+    capabilities: [authenticator]
+    config:
+      keys:
+        - id: local-dev
+          value: ${secret:GATEWAY_API_KEY}
+          tenant: dev
+
+  - name: litellm-router
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/router-litellm
+    capabilities: [router, observer]
+    fail_mode: open
+    config:
+      routing_strategy: least-busy
+      allowed_fails: 3
+      failure_window_seconds: 60
+      cooldown_time_seconds: 30
+      respect_rpm_tpm: true
+      model_list:
+        - model_name: gpt-4o-mini
+          provider_instance: openai
+          model: gpt-4o-mini
+          weight: 100
+          rpm: 1000
+          tpm: 100000
+        - model_name: gpt-4.1-mini
+          provider_instance: openai
+          model: gpt-4.1-mini
+          weight: 100
+      fallbacks:
+        gpt-4o-mini: [gpt-4.1-mini]
+
+  - name: openai
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/upstream-openai
+    capabilities: [upstream_provider]
+    config:
+      base_url: https://api.openai.com/v1
+      api_key: ${secret:OPENAI_API_KEY}
+
+pipeline:
+  authenticator: authn-static
+  router: litellm-router
+  upstream_providers: [openai]
+  observers: [litellm-router]
+
+models:
+  aliases:
+    gpt-4o-mini:
+      candidates:
+        - provider: openai
+          model: gpt-4o-mini
+          weight: 100
+    gpt-4.1-mini:
+      candidates:
+        - provider: openai
+          model: gpt-4.1-mini
+          weight: 100

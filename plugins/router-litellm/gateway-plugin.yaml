@@ -1,0 +1,31 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: router-litellm
+version: 0.1.0
+entrypoint: router-litellm
+capabilities:
+  - router
+  - observer
+config_schema:
+  type: object
+  properties:
+    routing_strategy:
+      type: string
+      enum: [simple-shuffle, weighted, least-busy, usage-based-routing, latency-based-routing, fallback, ordered]
+    model_list:
+      type: array
+    deployments:
+      type: array
+    fallbacks: {}
+    context_window_fallbacks: {}
+    content_policy_fallbacks: {}
+    allowed_fails:
+      type: number
+    failure_window_seconds:
+      type: number
+    cooldown_time_seconds:
+      type: number
+    respect_rpm_tpm:
+      type: boolean
+permissions:
+  data: {}

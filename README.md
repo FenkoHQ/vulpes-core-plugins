@@ -5,7 +5,8 @@ MVP plugin set for `github.com/FenkoHQ/vulpes-core`.
 Included plugins:
 
 - `authn-static-api-key`: static API-key authenticator for local/dev/self-hosted deployments.
-- `router-weighted`: weighted/shuffle/ordered router.
+- `router-weighted`: simple weighted/shuffle/ordered router.
+- `router-litellm`: LiteLLM-style router with load balancing, fallbacks, rpm/tpm limits, cooldowns, and feedback metrics.
 - `upstream-openai`: OpenAI-compatible upstream provider.
 - `observer-stdout`: simple JSON event sink for development.
 - `observer-prometheus`: Prometheus `/metrics` exporter for gateway events and usage.

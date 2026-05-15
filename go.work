@@ -4,6 +4,7 @@ use (
 	./plugins/authn-static-api-key
 	./plugins/observer-prometheus
 	./plugins/observer-stdout
+	./plugins/router-litellm
 	./plugins/router-weighted
 	./plugins/upstream-openai
 	./sdk
