@@ -8,6 +8,7 @@ Included plugins:
 - `router-weighted`: weighted/shuffle/ordered router.
 - `upstream-openai`: OpenAI-compatible upstream provider.
 - `observer-stdout`: simple JSON event sink for development.
+- `observer-prometheus`: Prometheus `/metrics` exporter for gateway events and usage.
 
 ## Build
 

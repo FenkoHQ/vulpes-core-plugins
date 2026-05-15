@@ -49,11 +49,23 @@ plugins:
     config:
       pretty: false
 
+  - name: prometheus
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/observer-prometheus
+    capabilities: [observer]
+    fail_mode: open
+    config:
+      listen: 127.0.0.1:9090
+      path: /metrics
+      namespace: vulpes_gateway
+      enable_tenant_labels: false
+
 pipeline:
   authenticator: authn-static
   router: weighted-router
   upstream_providers: [openai]
-  observers: [stdout]
+  observers: [stdout, prometheus]
 
 models:
   aliases:

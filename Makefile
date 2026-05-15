@@ -1,12 +1,19 @@
 .PHONY: test lint build clean
 
-PLUGINS := authn-static-api-key router-weighted upstream-openai observer-stdout
+PLUGINS := authn-static-api-key router-weighted upstream-openai observer-stdout observer-prometheus
+
+PACKAGES := ./sdk \
+	./plugins/authn-static-api-key \
+	./plugins/router-weighted \
+	./plugins/upstream-openai \
+	./plugins/observer-stdout \
+	./plugins/observer-prometheus
 
 test:
-	go test ./sdk ./plugins/authn-static-api-key ./plugins/router-weighted ./plugins/upstream-openai ./plugins/observer-stdout
+	go test $(PACKAGES)
 
 lint:
-	go vet ./sdk ./plugins/authn-static-api-key ./plugins/router-weighted ./plugins/upstream-openai ./plugins/observer-stdout
+	go vet $(PACKAGES)
 
 build:
 	mkdir -p bin
