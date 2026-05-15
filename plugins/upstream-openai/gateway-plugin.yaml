@@ -23,3 +23,5 @@ permissions:
   secrets:
     read:
       - OPENAI_API_KEY
+      - ALIAS_API_KEY
+      - LITELLM_API_KEY
