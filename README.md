@@ -10,6 +10,8 @@ Included plugins:
 - `upstream-openai`: OpenAI-compatible upstream provider.
 - `observer-stdout`: simple JSON event sink for development.
 - `observer-prometheus`: Prometheus `/metrics` exporter for gateway events and usage.
+- `observer-otel`: OTLP/HTTP traces and metrics exporter.
+- `observer-s3-transcripts`: transcript/request-log writer for S3-compatible storage.
 
 ## Build
 

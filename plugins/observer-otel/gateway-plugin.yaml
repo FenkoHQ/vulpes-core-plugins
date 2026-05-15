@@ -1,0 +1,20 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: observer-otel
+version: 0.1.0
+entrypoint: observer-otel
+capabilities:
+  - observer
+config_schema:
+  type: object
+  properties:
+    endpoint: {type: string}
+    service_name: {type: string}
+    insecure: {type: boolean}
+    headers: {type: object}
+    resource_attributes: {type: object}
+permissions:
+  network:
+    outbound:
+      - "*:4318"
+  data: {}

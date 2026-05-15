@@ -1,0 +1,81 @@
+server:
+  listen: 127.0.0.1:8080
+  request_timeout: 120s
+
+secrets:
+  env:
+    enabled: true
+
+observability:
+  flush_interval: 1s
+  capture_payloads: true
+
+plugins:
+  - name: authn-static
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/authn-static-api-key
+    capabilities: [authenticator]
+    config:
+      keys:
+        - id: local-dev
+          value: ${secret:GATEWAY_API_KEY}
+          tenant: dev
+
+  - name: litellm-router
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/router-litellm
+    capabilities: [router, observer]
+    config:
+      routing_strategy: least-busy
+
+  - name: openai
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/upstream-openai
+    capabilities: [upstream_provider]
+    config:
+      api_key: ${secret:OPENAI_API_KEY}
+
+  - name: otel
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/observer-otel
+    capabilities: [observer]
+    fail_mode: open
+    config:
+      endpoint: localhost:4318
+      service_name: vulpes-gateway
+      insecure: true
+      resource_attributes:
+        deployment.environment: dev
+
+  - name: s3-transcripts
+    source:
+      type: filesystem
+      path: ../vulpes-core-plugins/bin/observer-s3-transcripts
+    capabilities: [observer]
+    fail_mode: open
+    config:
+      endpoint: http://127.0.0.1:9000
+      region: us-east-1
+      bucket: llm-transcripts
+      prefix: vulpes/dev
+      access_key_id: ${secret:S3_ACCESS_KEY_ID}
+      secret_access_key: ${secret:S3_SECRET_ACCESS_KEY}
+      force_path_style: true
+
+pipeline:
+  authenticator: authn-static
+  router: litellm-router
+  upstream_providers: [openai]
+  observers: [litellm-router, otel, s3-transcripts]
+
+models:
+  aliases:
+    gpt-4o-mini:
+      candidates:
+        - provider: openai
+          model: gpt-4o-mini
+          weight: 100

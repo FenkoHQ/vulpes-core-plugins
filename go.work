@@ -2,7 +2,9 @@ go 1.25.0
 
 use (
 	./plugins/authn-static-api-key
+	./plugins/observer-otel
 	./plugins/observer-prometheus
+	./plugins/observer-s3-transcripts
 	./plugins/observer-stdout
 	./plugins/router-litellm
 	./plugins/router-weighted
