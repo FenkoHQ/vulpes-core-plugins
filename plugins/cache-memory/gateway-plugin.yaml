@@ -1,0 +1,25 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: cache-memory
+version: 0.1.0
+entrypoint: cache-memory
+capabilities:
+  - cache_provider
+config_schema:
+  type: object
+  properties:
+    default_ttl_ms:
+      type: integer
+      default: 60000
+    max_entries:
+      type: integer
+      default: 10000
+    namespace:
+      type: string
+    include_model:
+      type: boolean
+      default: true
+permissions:
+  data:
+    read_prompt: true
+    read_response: true

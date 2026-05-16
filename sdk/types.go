@@ -194,6 +194,38 @@ type AuthenticateResponse struct {
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 }
 
+type RateLimitCheckRequest struct {
+	Context               CallContext       `json:"context"`
+	Identity              Identity          `json:"identity"`
+	Model                 string            `json:"model"`
+	EstimatedInputTokens  int64             `json:"estimated_input_tokens"`
+	RequestedOutputTokens int64             `json:"requested_output_tokens"`
+	Properties            map[string]string `json:"properties,omitempty"`
+}
+
+type RateLimitState struct {
+	RequestLimit       int64   `json:"request_limit,omitempty"`
+	RequestRemaining   int64   `json:"request_remaining,omitempty"`
+	TokenLimit         int64   `json:"token_limit,omitempty"`
+	TokenRemaining     int64   `json:"token_remaining,omitempty"`
+	BudgetLimitUSD     float64 `json:"budget_limit_usd,omitempty"`
+	BudgetRemainingUSD float64 `json:"budget_remaining_usd,omitempty"`
+	ResetUnixNano      int64   `json:"reset_unix_nano,omitempty"`
+}
+
+type RateLimitCheckResponse struct {
+	Decision     string         `json:"decision"`
+	DenyReason   string         `json:"deny_reason,omitempty"`
+	RetryAfterMS int64          `json:"retry_after_ms,omitempty"`
+	State        RateLimitState `json:"state,omitempty"`
+}
+
+type CommitUsageRequest struct {
+	Context  CallContext `json:"context"`
+	Identity Identity    `json:"identity"`
+	Usage    Usage       `json:"usage"`
+}
+
 type RouteCandidate struct {
 	ProviderInstance         string            `json:"provider_instance"`
 	ProviderModel            string            `json:"provider_model"`
@@ -250,6 +282,38 @@ type ModelInfo struct {
 	Region            string            `json:"region,omitempty"`
 	Healthy           bool              `json:"healthy"`
 	Properties        map[string]string `json:"properties,omitempty"`
+}
+
+type CachePolicy struct {
+	TTLMillis int64             `json:"ttl_ms,omitempty"`
+	Semantic  bool              `json:"semantic,omitempty"`
+	Vary      map[string]string `json:"vary,omitempty"`
+}
+
+type CachedResponse struct {
+	Response ChatCompletionResponse `json:"response"`
+	Usage    Usage                  `json:"usage,omitempty"`
+}
+
+type CacheLookupRequest struct {
+	Context  CallContext `json:"context"`
+	Identity Identity    `json:"identity"`
+	CacheKey string      `json:"cache_key"`
+	Policy   CachePolicy `json:"policy"`
+}
+
+type CacheLookupResponse struct {
+	Hit      bool           `json:"hit"`
+	Response CachedResponse `json:"response,omitempty"`
+	CacheID  string         `json:"cache_id,omitempty"`
+}
+
+type CacheStoreRequest struct {
+	Context  CallContext    `json:"context"`
+	Identity Identity       `json:"identity"`
+	CacheKey string         `json:"cache_key"`
+	Response CachedResponse `json:"response"`
+	Policy   CachePolicy    `json:"policy"`
 }
 
 type GatewayEvent struct {

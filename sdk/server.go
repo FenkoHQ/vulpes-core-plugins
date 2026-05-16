@@ -21,12 +21,20 @@ type Configurer interface {
 type Authenticator interface {
 	Authenticate(context.Context, AuthenticateRequest) (AuthenticateResponse, error)
 }
+type RateLimiter interface {
+	Check(context.Context, RateLimitCheckRequest) (RateLimitCheckResponse, error)
+	Commit(context.Context, CommitUsageRequest) error
+}
 type Router interface {
 	Route(context.Context, RouteRequest) (RouteResponse, error)
 }
 type UpstreamProvider interface {
 	Invoke(context.Context, InvokeRequest) ([]ResponseChunk, error)
 	ListModels(context.Context) ([]ModelInfo, error)
+}
+type CacheProvider interface {
+	Lookup(context.Context, CacheLookupRequest) (CacheLookupResponse, error)
+	Store(context.Context, CacheStoreRequest) error
 }
 type Observer interface {
 	Emit(context.Context, []GatewayEvent) error
@@ -41,8 +49,10 @@ type Service struct {
 
 	Configurer       Configurer
 	Authenticator    Authenticator
+	RateLimiter      RateLimiter
 	Router           Router
 	UpstreamProvider UpstreamProvider
+	CacheProvider    CacheProvider
 	Observer         Observer
 	PromptProvider   PromptProvider
 }
@@ -170,6 +180,25 @@ func (s *Service) Authenticate(req AuthenticateRequest, resp *AuthenticateRespon
 	return nil
 }
 
+func (s *Service) CheckRateLimit(req RateLimitCheckRequest, resp *RateLimitCheckResponse) error {
+	if s.RateLimiter == nil {
+		return ErrNotImplemented
+	}
+	out, err := s.RateLimiter.Check(contextFromCall(req.Context), req)
+	if err != nil {
+		return err
+	}
+	*resp = out
+	return nil
+}
+
+func (s *Service) CommitUsage(req CommitUsageRequest, resp *struct{}) error {
+	if s.RateLimiter == nil {
+		return ErrNotImplemented
+	}
+	return s.RateLimiter.Commit(contextFromCall(req.Context), req)
+}
+
 func (s *Service) Route(req RouteRequest, resp *RouteResponse) error {
 	if s.Router == nil {
 		return ErrNotImplemented
@@ -205,6 +234,25 @@ func (s *Service) ListModels(req struct{}, resp *[]ModelInfo) error {
 	}
 	*resp = out
 	return nil
+}
+
+func (s *Service) CacheLookup(req CacheLookupRequest, resp *CacheLookupResponse) error {
+	if s.CacheProvider == nil {
+		return ErrNotImplemented
+	}
+	out, err := s.CacheProvider.Lookup(contextFromCall(req.Context), req)
+	if err != nil {
+		return err
+	}
+	*resp = out
+	return nil
+}
+
+func (s *Service) CacheStore(req CacheStoreRequest, resp *struct{}) error {
+	if s.CacheProvider == nil {
+		return ErrNotImplemented
+	}
+	return s.CacheProvider.Store(contextFromCall(req.Context), req)
 }
 
 func (s *Service) Emit(events []GatewayEvent, resp *struct{}) error {
