@@ -157,7 +157,8 @@ func (s *Service) Configure(req ConfigureRequest, resp *ConfigureResponse) error
 			return err
 		}
 	}
-	ctx := contextFromCall(req.Context)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
 	return s.Configurer.Configure(ctx, cfg, req.ResolvedSecrets)
 }
 
@@ -172,7 +173,9 @@ func (s *Service) Authenticate(req AuthenticateRequest, resp *AuthenticateRespon
 	if s.Authenticator == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.Authenticator.Authenticate(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.Authenticator.Authenticate(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -184,7 +187,9 @@ func (s *Service) CheckRateLimit(req RateLimitCheckRequest, resp *RateLimitCheck
 	if s.RateLimiter == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.RateLimiter.Check(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.RateLimiter.Check(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -196,14 +201,18 @@ func (s *Service) CommitUsage(req CommitUsageRequest, resp *struct{}) error {
 	if s.RateLimiter == nil {
 		return ErrNotImplemented
 	}
-	return s.RateLimiter.Commit(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	return s.RateLimiter.Commit(ctx, req)
 }
 
 func (s *Service) Route(req RouteRequest, resp *RouteResponse) error {
 	if s.Router == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.Router.Route(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.Router.Route(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -215,7 +224,9 @@ func (s *Service) Invoke(req InvokeRequest, resp *[]ResponseChunk) error {
 	if s.UpstreamProvider == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.UpstreamProvider.Invoke(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.UpstreamProvider.Invoke(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -240,7 +251,9 @@ func (s *Service) CacheLookup(req CacheLookupRequest, resp *CacheLookupResponse)
 	if s.CacheProvider == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.CacheProvider.Lookup(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.CacheProvider.Lookup(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -252,7 +265,9 @@ func (s *Service) CacheStore(req CacheStoreRequest, resp *struct{}) error {
 	if s.CacheProvider == nil {
 		return ErrNotImplemented
 	}
-	return s.CacheProvider.Store(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	return s.CacheProvider.Store(ctx, req)
 }
 
 func (s *Service) Emit(events []GatewayEvent, resp *struct{}) error {
@@ -266,7 +281,9 @@ func (s *Service) ResolvePrompt(req PromptResolveRequest, resp *PromptResolveRes
 	if s.PromptProvider == nil {
 		return ErrNotImplemented
 	}
-	out, err := s.PromptProvider.ResolvePrompt(contextFromCall(req.Context), req)
+	ctx, cancel := contextFromCall(req.Context)
+	defer cancel()
+	out, err := s.PromptProvider.ResolvePrompt(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -274,6 +291,9 @@ func (s *Service) ResolvePrompt(req PromptResolveRequest, resp *PromptResolveRes
 	return nil
 }
 
-func contextFromCall(c CallContext) context.Context {
-	return context.Background()
+func contextFromCall(c CallContext) (context.Context, context.CancelFunc) {
+	if !c.Deadline.IsZero() {
+		return context.WithDeadline(context.Background(), c.Deadline)
+	}
+	return context.Background(), func() {}
 }

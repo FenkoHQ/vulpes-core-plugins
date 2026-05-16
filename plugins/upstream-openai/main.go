@@ -111,6 +111,9 @@ func (p *plugin) openAIRequest(req sdk.InvokeRequest) map[string]any {
 		"messages": req.Request.Messages,
 		"stream":   req.Request.Stream,
 	}
+	if req.Request.Stream {
+		body["stream_options"] = map[string]any{"include_usage": true}
+	}
 	if req.Request.Temperature != nil {
 		body["temperature"] = *req.Request.Temperature
 	}
@@ -137,6 +140,8 @@ func (p *plugin) openAIRequest(req sdk.InvokeRequest) map[string]any {
 func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.ResponseChunk {
 	var chunks []sdk.ResponseChunk
 	s := bufio.NewScanner(r)
+	buf := make([]byte, 0, 1024*1024)
+	s.Buffer(buf, 8*1024*1024)
 	for s.Scan() {
 		line := strings.TrimSpace(s.Text())
 		if !strings.HasPrefix(line, "data: ") {
