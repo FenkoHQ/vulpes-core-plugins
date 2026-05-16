@@ -92,6 +92,7 @@ LIMIT 1`, pgIdent(p.table))
 }
 
 func (p *plugin) createSchema(ctx context.Context) error {
+	table := pgIdent(p.table)
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
   key_id text PRIMARY KEY,
@@ -104,9 +105,9 @@ CREATE TABLE IF NOT EXISTS %s (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS %s_key_hash_active_idx ON %s (key_hash) WHERE active = true;
-CREATE INDEX IF NOT EXISTS %s_tenant_idx ON %s (tenant_id);
-`, pgIdent(p.table), pgIdent(p.table), pgIdent(p.table), pgIdent(p.table), pgIdent(p.table))
+CREATE INDEX IF NOT EXISTS %s ON %s (key_hash) WHERE active = true;
+CREATE INDEX IF NOT EXISTS %s ON %s (tenant_id);
+`, table, pgIdent(p.table+"_key_hash_active_idx"), table, pgIdent(p.table+"_tenant_idx"), table)
 	_, err := p.pool.Exec(ctx, q)
 	return err
 }
