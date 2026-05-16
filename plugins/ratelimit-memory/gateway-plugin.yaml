@@ -1,0 +1,21 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: ratelimit-memory
+version: 0.1.0
+entrypoint: ratelimit-memory
+capabilities:
+  - rate_limiter
+config_schema:
+  type: object
+  properties:
+    requests_per_minute:
+      type: integer
+    tokens_per_minute:
+      type: integer
+    key_by:
+      type: string
+      enum: [tenant, subject, tenant_model, subject_model]
+    rules:
+      type: array
+permissions:
+  data: {}

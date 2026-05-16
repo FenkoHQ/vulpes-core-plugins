@@ -3,11 +3,14 @@ go 1.25.0
 use (
 	./plugins/authn-postgres-api-key
 	./plugins/authn-static-api-key
+	./plugins/cache-memory
 	./plugins/observer-otel
 	./plugins/observer-prometheus
 	./plugins/observer-s3-transcripts
 	./plugins/observer-stdout
 	./plugins/prompt-context-injector
+	./plugins/prompt-template-registry
+	./plugins/ratelimit-memory
 	./plugins/router-consul
 	./plugins/router-litellm
 	./plugins/router-weighted
