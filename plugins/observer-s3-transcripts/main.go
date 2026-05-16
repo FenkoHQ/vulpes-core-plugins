@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,6 +30,8 @@ type plugin struct {
 	sessionToken   string
 	forcePathStyle bool
 	storeEvents    bool
+	gzip           bool
+	pretty         bool
 	client         *s3.Client
 }
 
@@ -65,6 +68,14 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	if v, ok := cfg["store_all_events"].(bool); ok {
 		p.storeEvents = v
 	}
+	p.gzip = true
+	if v, ok := cfg["gzip"].(bool); ok {
+		p.gzip = v
+	}
+	p.pretty = false
+	if v, ok := cfg["pretty"].(bool); ok {
+		p.pretty = v
+	}
 	if p.bucket == "" {
 		return fmt.Errorf("bucket is required")
 	}
@@ -93,6 +104,8 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 	bucket := p.bucket
 	prefix := p.prefix
 	storeAll := p.storeEvents
+	gzipEnabled := p.gzip
+	pretty := p.pretty
 	p.mu.Unlock()
 	if client == nil {
 		return nil
@@ -102,17 +115,26 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 			continue
 		}
 		obj := buildTranscript(ev)
-		body, err := json.MarshalIndent(obj, "", "  ")
+		body, err := marshalTranscript(obj, pretty)
 		if err != nil {
 			return err
 		}
-		key := transcriptKey(prefix, ev)
-		_, err = client.PutObject(ctx, &s3.PutObjectInput{
+		key := transcriptKey(prefix, ev, gzipEnabled)
+		input := &s3.PutObjectInput{
 			Bucket:      aws.String(bucket),
 			Key:         aws.String(key),
 			Body:        bytes.NewReader(body),
 			ContentType: aws.String("application/json"),
-		})
+		}
+		if gzipEnabled {
+			compressed, err := gzipBytes(body)
+			if err != nil {
+				return err
+			}
+			input.Body = bytes.NewReader(compressed)
+			input.ContentEncoding = aws.String("gzip")
+		}
+		_, err = client.PutObject(ctx, input)
 		if err != nil {
 			return fmt.Errorf("put transcript %s/%s: %w", bucket, key, err)
 		}
@@ -138,7 +160,27 @@ func buildTranscript(ev sdk.GatewayEvent) transcriptObject {
 	return obj
 }
 
-func transcriptKey(prefix string, ev sdk.GatewayEvent) string {
+func marshalTranscript(obj transcriptObject, pretty bool) ([]byte, error) {
+	if pretty {
+		return json.MarshalIndent(obj, "", "  ")
+	}
+	return json.Marshal(obj)
+}
+
+func gzipBytes(body []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(body); err != nil {
+		_ = zw.Close()
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func transcriptKey(prefix string, ev sdk.GatewayEvent, gzipEnabled bool) string {
 	t := time.Unix(0, ev.TimestampUnixNano).UTC()
 	if ev.TimestampUnixNano == 0 {
 		t = time.Now().UTC()
@@ -147,7 +189,11 @@ func transcriptKey(prefix string, ev sdk.GatewayEvent) string {
 	if requestID == "" {
 		requestID = fmt.Sprintf("event-%d", t.UnixNano())
 	}
-	parts := []string{prefix, t.Format("2006/01/02/15"), requestID + "." + safePart(ev.EventType) + ".json"}
+	suffix := ".json"
+	if gzipEnabled {
+		suffix = ".json.gz"
+	}
+	parts := []string{prefix, t.Format("2006/01/02/15"), requestID + "." + safePart(ev.EventType) + suffix}
 	return strings.TrimPrefix(path.Join(parts...), "/")
 }
 
@@ -187,7 +233,7 @@ func main() {
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityObserver, Name: "s3-transcripts", Version: "0.1.0"}},
 			Permissions:  sdk.Permissions{SecretNames: []string{"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
-		Schema:     `{"type":"object","required":["bucket"],"properties":{"bucket":{"type":"string"},"prefix":{"type":"string"},"endpoint":{"type":"string"},"region":{"type":"string"},"access_key_id":{"type":"string"},"secret_access_key":{"type":"string"},"session_token":{"type":"string"},"force_path_style":{"type":"boolean"},"store_all_events":{"type":"boolean"}}}`,
+		Schema:     `{"type":"object","required":["bucket"],"properties":{"bucket":{"type":"string"},"prefix":{"type":"string"},"endpoint":{"type":"string"},"region":{"type":"string"},"access_key_id":{"type":"string"},"secret_access_key":{"type":"string"},"session_token":{"type":"string"},"force_path_style":{"type":"boolean"},"store_all_events":{"type":"boolean"},"gzip":{"type":"boolean"},"pretty":{"type":"boolean"}}}`,
 		Configurer: p,
 		Observer:   p,
 	}

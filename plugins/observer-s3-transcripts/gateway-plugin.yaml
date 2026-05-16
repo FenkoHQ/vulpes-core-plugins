@@ -18,6 +18,8 @@ config_schema:
     session_token: {type: string, secret: true}
     force_path_style: {type: boolean}
     store_all_events: {type: boolean}
+    gzip: {type: boolean}
+    pretty: {type: boolean}
 permissions:
   network:
     outbound:
