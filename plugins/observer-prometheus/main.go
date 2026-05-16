@@ -35,9 +35,10 @@ type labelKey struct {
 }
 
 type usageKey struct {
-	Provider string
-	Model    string
-	TenantID string
+	Provider      string
+	Model         string
+	UpstreamModel string
+	TenantID      string
 }
 
 type resultKey struct {
@@ -114,7 +115,11 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 			p.requestResults[resultKey{Status: "failed", TenantID: tenant}]++
 		}
 		if ev.Usage.InputTokens != 0 || ev.Usage.OutputTokens != 0 || ev.Usage.TotalTokens != 0 || ev.Usage.CostUSD != 0 {
-			key := usageKey{Provider: ev.Usage.ProviderInstance, Model: ev.Usage.ProviderModel, TenantID: tenant}
+			model := ev.Properties["requested_model"]
+			if model == "" {
+				model = ev.Usage.ProviderModel
+			}
+			key := usageKey{Provider: ev.Usage.ProviderInstance, Model: model, UpstreamModel: ev.Usage.ProviderModel, TenantID: tenant}
 			p.usageInput[key] += float64(ev.Usage.InputTokens)
 			p.usageOutput[key] += float64(ev.Usage.OutputTokens)
 			p.usageTotal[key] += float64(ev.Usage.TotalTokens)
@@ -158,6 +163,9 @@ func writeUsageMap(w http.ResponseWriter, name, help string, values map[usageKey
 	writeHelp(w, name, help, "counter")
 	for _, key := range sortedUsageKeys(values) {
 		labels := map[string]string{"provider": key.Provider, "model": key.Model}
+		if key.UpstreamModel != "" && key.UpstreamModel != key.Model {
+			labels["upstream_model"] = key.UpstreamModel
+		}
 		if tenant {
 			labels["tenant_id"] = key.TenantID
 		}
@@ -215,6 +223,9 @@ func sortedUsageKeys(m map[usageKey]float64) []usageKey {
 		}
 		if keys[i].Model != keys[j].Model {
 			return keys[i].Model < keys[j].Model
+		}
+		if keys[i].UpstreamModel != keys[j].UpstreamModel {
+			return keys[i].UpstreamModel < keys[j].UpstreamModel
 		}
 		return keys[i].TenantID < keys[j].TenantID
 	})
