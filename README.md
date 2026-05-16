@@ -35,3 +35,7 @@ Binaries are written to `bin/`.
 See `examples/gateway.yaml`.
 
 The current MVP plugins speak the core's local Unix-socket RPC protocol and expose metadata, config schema, configure, health, and strict capability methods.
+
+## License
+
+AGPL-3.0-only. See [LICENSE](LICENSE).
