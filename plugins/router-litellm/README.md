@@ -15,6 +15,7 @@ Supported MVP behavior:
   - `latency-based-routing`
   - `fallback` / `ordered`
 - per-deployment `rpm` / `tpm` filtering
+- per-deployment cost metadata (`input_cost_per_token`, `output_cost_per_token`, or per-1k variants) propagated to upstream usage accounting
 - cooldown after repeated upstream failures
 - observer feedback loop for usage, latency, failures, and in-flight counts
 

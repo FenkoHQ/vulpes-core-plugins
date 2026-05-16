@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -157,7 +158,9 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content}, FinishReason: choice.FinishReason}}}})
 		}
 		if ev.Usage.TotalTokens > 0 {
-			chunks = append(chunks, sdk.ResponseChunk{Usage: &sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: ev.Usage.PromptTokens, OutputTokens: ev.Usage.CompletionTokens, TotalTokens: ev.Usage.TotalTokens}})
+			usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: ev.Usage.PromptTokens, OutputTokens: ev.Usage.CompletionTokens, TotalTokens: ev.Usage.TotalTokens}
+			usage.CostUSD = estimateCostUSD(req.Properties, usage)
+			chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
 		}
 	}
 	if err := s.Err(); err != nil {
@@ -179,8 +182,25 @@ func (p *plugin) responseChunks(req sdk.InvokeRequest, out openAIChatResponse) [
 		}
 		chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: out.ID, Object: "chat.completion.chunk", Created: out.Created, Model: out.Model, Choices: []sdk.ChatChoice{ch}}})
 	}
-	chunks = append(chunks, sdk.ResponseChunk{Usage: &sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}})
+	usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}
+	usage.CostUSD = estimateCostUSD(req.Properties, usage)
+	chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
 	return chunks
+}
+
+func estimateCostUSD(props map[string]string, usage sdk.Usage) float64 {
+	inputPer1K := firstFloatProp(props, "input_cost_per_1k_tokens", "input_cost_per_1k", "estimated_cost_per_1k_input", "cost_per_1k_input", "litellm_input_cost_per_1k")
+	outputPer1K := firstFloatProp(props, "output_cost_per_1k_tokens", "output_cost_per_1k", "estimated_cost_per_1k_output", "cost_per_1k_output", "litellm_output_cost_per_1k")
+	return float64(usage.InputTokens)/1000*inputPer1K + float64(usage.OutputTokens)/1000*outputPer1K
+}
+
+func firstFloatProp(props map[string]string, keys ...string) float64 {
+	for _, key := range keys {
+		if v := parseFloat(props[key]); v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func (p *plugin) addHeaders(req *http.Request) {
@@ -255,6 +275,10 @@ func stringValue(v any) string {
 		return s
 	}
 	return ""
+}
+func parseFloat(s string) float64 {
+	f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return f
 }
 
 func main() {

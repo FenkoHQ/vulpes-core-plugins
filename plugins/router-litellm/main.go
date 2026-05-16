@@ -29,16 +29,18 @@ type plugin struct {
 }
 
 type deployment struct {
-	Key              string
-	ModelName        string
-	ProviderInstance string
-	ProviderModel    string
-	Weight           int
-	RPM              int64
-	TPM              int64
-	Region           string
-	ContextWindow    int64
-	Properties       map[string]string
+	Key                   string
+	ModelName             string
+	ProviderInstance      string
+	ProviderModel         string
+	Weight                int
+	RPM                   int64
+	TPM                   int64
+	Region                string
+	ContextWindow         int64
+	InputCostPer1KTokens  float64
+	OutputCostPer1KTokens float64
+	Properties            map[string]string
 
 	InFlight      int64
 	CooldownUntil time.Time
@@ -133,6 +135,14 @@ func (p *plugin) Route(ctx context.Context, req sdk.RouteRequest) (sdk.RouteResp
 		props["litellm_model_group"] = d.ModelName
 		props["litellm_routing_strategy"] = p.strategy
 		props["litellm_deployment_key"] = d.Key
+		if d.InputCostPer1KTokens > 0 {
+			props["input_cost_per_1k_tokens"] = strconv.FormatFloat(d.InputCostPer1KTokens, 'f', -1, 64)
+			props["estimated_cost_per_1k_input"] = props["input_cost_per_1k_tokens"]
+		}
+		if d.OutputCostPer1KTokens > 0 {
+			props["output_cost_per_1k_tokens"] = strconv.FormatFloat(d.OutputCostPer1KTokens, 'f', -1, 64)
+			props["estimated_cost_per_1k_output"] = props["output_cost_per_1k_tokens"]
+		}
 		routes = append(routes, sdk.SelectedRoute{ProviderInstance: d.ProviderInstance, ProviderModel: d.ProviderModel, Priority: i, Properties: props})
 	}
 	return sdk.RouteResponse{Routes: routes, Reason: "litellm_" + p.strategy}, nil
@@ -397,7 +407,10 @@ func parseDeployments(raw any) []deployment {
 			}
 			props["tags"] = strings.Join(parts, ",")
 		}
+		modelInfo, _ := m["model_info"].(map[string]any)
 		d := deployment{ModelName: modelName, ProviderInstance: provider, ProviderModel: providerModel, Weight: weight, RPM: intValue(m["rpm"]), TPM: intValue(m["tpm"]), Region: stringValue(m["region"]), ContextWindow: intValue(m["context_window"]), Properties: props}
+		d.InputCostPer1KTokens = costPer1K(firstNonNil(m["input_cost_per_1k_tokens"], m["input_cost_per_1k"], m["cost_per_1k_input"], params["input_cost_per_1k_tokens"], params["input_cost_per_1k"], params["cost_per_1k_input"], modelInfo["input_cost_per_1k_tokens"], modelInfo["input_cost_per_1k"], modelInfo["cost_per_1k_input"]), firstNonNil(m["input_cost_per_token"], params["input_cost_per_token"], modelInfo["input_cost_per_token"]))
+		d.OutputCostPer1KTokens = costPer1K(firstNonNil(m["output_cost_per_1k_tokens"], m["output_cost_per_1k"], m["cost_per_1k_output"], params["output_cost_per_1k_tokens"], params["output_cost_per_1k"], params["cost_per_1k_output"], modelInfo["output_cost_per_1k_tokens"], modelInfo["output_cost_per_1k"], modelInfo["cost_per_1k_output"]), firstNonNil(m["output_cost_per_token"], params["output_cost_per_token"], modelInfo["output_cost_per_token"]))
 		d.Key = deploymentKey(d.ProviderInstance, d.ProviderModel)
 		out = append(out, d)
 	}
@@ -468,6 +481,15 @@ func firstNonNil(values ...any) any {
 	}
 	return nil
 }
+func costPer1K(per1K any, perToken any) float64 {
+	if v := parseFloatAny(per1K); v > 0 {
+		return v
+	}
+	if v := parseFloatAny(perToken); v > 0 {
+		return v * 1000
+	}
+	return 0
+}
 func firstString(values ...any) string {
 	for _, v := range values {
 		if s := stringValue(v); s != "" {
@@ -483,6 +505,22 @@ func stringValue(v any) string {
 	return ""
 }
 func parseFloat(s string) float64 { f, _ := strconv.ParseFloat(s, 64); return f }
+func parseFloatAny(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case string:
+		return parseFloat(x)
+	default:
+		return 0
+	}
+}
 func intValue(v any) int64 {
 	switch n := v.(type) {
 	case int:

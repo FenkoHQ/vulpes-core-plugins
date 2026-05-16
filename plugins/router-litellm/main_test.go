@@ -84,6 +84,35 @@ func TestCooldownAfterFailures(t *testing.T) {
 	}
 }
 
+func TestRouteCarriesCostProperties(t *testing.T) {
+	p := newPlugin()
+	cfg := map[string]any{
+		"routing_strategy": "ordered",
+		"model_list": []any{
+			map[string]any{
+				"model_name":        "gpt",
+				"provider_instance": "openai-a",
+				"model":             "m",
+				"model_info": map[string]any{
+					"input_cost_per_token":  float64(0.000001),
+					"output_cost_per_token": float64(0.000002),
+				},
+			},
+		},
+	}
+	if err := p.Configure(context.Background(), cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := p.Route(context.Background(), sdk.RouteRequest{Context: sdk.CallContext{RequestID: "r1"}, RequestedModel: "gpt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	props := resp.Routes[0].Properties
+	if props["input_cost_per_1k_tokens"] != "0.001" || props["output_cost_per_1k_tokens"] != "0.002" {
+		t.Fatalf("missing cost props: %#v", props)
+	}
+}
+
 func TestRPMFiltering(t *testing.T) {
 	p := newPlugin()
 	cfg := map[string]any{
