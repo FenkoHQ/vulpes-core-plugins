@@ -1,0 +1,22 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: authn-postgres-api-key
+version: 0.1.0
+entrypoint: authn-postgres-api-key
+capabilities:
+  - authenticator
+config_schema:
+  type: object
+  required: [database_url]
+  properties:
+    database_url: {type: string, secret: true}
+    dsn: {type: string, secret: true}
+    table: {type: string}
+    auto_create: {type: boolean}
+permissions:
+  data:
+    read_headers: true
+  secrets:
+    read:
+      - AUTH_DATABASE_URL
+      - DATABASE_URL

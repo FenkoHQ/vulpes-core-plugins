@@ -5,6 +5,7 @@ MVP plugin set for `github.com/FenkoHQ/vulpes-core`.
 Included plugins:
 
 - `authn-static-api-key`: static API-key authenticator for local/dev/self-hosted deployments.
+- `authn-postgres-api-key`: database-backed API key authenticator.
 - `router-weighted`: simple weighted/shuffle/ordered router.
 - `router-litellm`: LiteLLM-style router with load balancing, fallbacks, rpm/tpm limits, cooldowns, and feedback metrics.
 - `router-consul`: discovers healthy LiteLLM/OpenAI-compatible instances from Consul.

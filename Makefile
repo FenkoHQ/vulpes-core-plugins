@@ -1,9 +1,10 @@
 .PHONY: test lint build clean
 
-PLUGINS := authn-static-api-key router-weighted router-litellm router-consul prompt-context-injector upstream-openai observer-stdout observer-prometheus observer-otel observer-s3-transcripts
+PLUGINS := authn-static-api-key authn-postgres-api-key router-weighted router-litellm router-consul prompt-context-injector upstream-openai observer-stdout observer-prometheus observer-otel observer-s3-transcripts
 
 PACKAGES := ./sdk \
 	./plugins/authn-static-api-key \
+	./plugins/authn-postgres-api-key \
 	./plugins/router-weighted \
 	./plugins/router-litellm \
 	./plugins/router-consul \

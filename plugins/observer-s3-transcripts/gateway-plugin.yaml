@@ -20,6 +20,10 @@ config_schema:
     store_all_events: {type: boolean}
     gzip: {type: boolean}
     pretty: {type: boolean}
+    database_url: {type: string, secret: true}
+    postgres_url: {type: string, secret: true}
+    database_table: {type: string}
+    database_auto_create: {type: boolean}
 permissions:
   network:
     outbound:
@@ -36,3 +40,5 @@ permissions:
       - AWS_ACCESS_KEY_ID
       - AWS_SECRET_ACCESS_KEY
       - AWS_SESSION_TOKEN
+      - TRANSCRIPTS_DATABASE_URL
+      - DATABASE_URL

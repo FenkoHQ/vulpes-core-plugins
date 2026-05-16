@@ -1,6 +1,7 @@
 go 1.25.0
 
 use (
+	./plugins/authn-postgres-api-key
 	./plugins/authn-static-api-key
 	./plugins/observer-otel
 	./plugins/observer-prometheus

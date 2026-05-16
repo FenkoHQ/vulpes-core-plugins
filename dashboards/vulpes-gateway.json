@@ -1,0 +1,69 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(vulpes_gateway_requests_total[$__range]))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Failures",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(vulpes_gateway_requests_total{status=\"failed\"}[$__range]))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Total Tokens",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(vulpes_gateway_usage_total_tokens_total[$__range]))", "refId": "A"}]
+    },
+    {
+      "type": "stat",
+      "title": "Cost USD",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "sum(increase(vulpes_gateway_usage_cost_usd_total[$__range]))", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request Rate",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by (status) (rate(vulpes_gateway_requests_total[5m]))", "legendFormat": "{{status}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Token Rate by Model",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by (provider, model) (rate(vulpes_gateway_usage_total_tokens_total[5m]))", "legendFormat": "{{provider}}/{{model}}", "refId": "A"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gateway Events",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by (event_type) (rate(vulpes_gateway_events_total[5m]))", "legendFormat": "{{event_type}}", "refId": "A"}]
+    },
+    {
+      "type": "table",
+      "title": "Usage by Provider / Model",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "sum by (provider, model) (increase(vulpes_gateway_usage_total_tokens_total[$__range]))", "format": "table", "instant": true, "refId": "A"}]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["vulpes", "llm", "gateway"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "Vulpes Gateway",
+  "uid": "vulpes-gateway",
+  "version": 1,
+  "weekStart": ""
+}
