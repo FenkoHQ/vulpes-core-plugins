@@ -14,6 +14,7 @@ Included plugins:
 - `prompt-context-injector`: injects or replaces prompt context by key, model, tenant, or subject.
 - `prompt-template-registry`: static versioned prompt registry with template rendering.
 - `upstream-openai`: OpenAI-compatible upstream provider.
+- `upstream-codex`: Codex/code-model upstream provider using the OpenAI Responses API.
 - `observer-stdout`: simple JSON event sink for development.
 - `observer-prometheus`: Prometheus `/metrics` exporter for gateway events and usage.
 - `observer-otel`: OTLP/HTTP traces and metrics exporter.

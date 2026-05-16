@@ -1,6 +1,6 @@
 .PHONY: test lint build clean
 
-PLUGINS := authn-static-api-key authn-postgres-api-key cache-memory ratelimit-memory router-weighted router-litellm router-consul prompt-context-injector prompt-template-registry upstream-openai observer-stdout observer-prometheus observer-otel observer-s3-transcripts
+PLUGINS := authn-static-api-key authn-postgres-api-key cache-memory ratelimit-memory router-weighted router-litellm router-consul prompt-context-injector prompt-template-registry upstream-openai upstream-codex observer-stdout observer-prometheus observer-otel observer-s3-transcripts
 
 PACKAGES := ./sdk \
 	./plugins/authn-static-api-key \
@@ -13,6 +13,7 @@ PACKAGES := ./sdk \
 	./plugins/prompt-context-injector \
 	./plugins/prompt-template-registry \
 	./plugins/upstream-openai \
+	./plugins/upstream-codex \
 	./plugins/observer-stdout \
 	./plugins/observer-prometheus \
 	./plugins/observer-otel \
