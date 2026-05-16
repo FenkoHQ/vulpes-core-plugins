@@ -1,0 +1,34 @@
+api_version: gateway.fenko.dev/v1
+kind: GatewayPlugin
+name: upstream-codex
+version: 0.1.0
+entrypoint: upstream-codex
+capabilities:
+  - upstream_provider
+config_schema:
+  type: object
+  required: [api_key]
+  properties:
+    base_url: {type: string}
+    api_key: {type: string, secret: true}
+    organization: {type: string}
+    project: {type: string}
+    reasoning_effort: {type: string, enum: [minimal, low, medium, high]}
+    service_tier: {type: string}
+    include:
+      oneOf:
+        - type: array
+          items: {type: string}
+        - type: string
+    timeout_seconds: {type: number}
+permissions:
+  network:
+    outbound:
+      - api.openai.com:443
+  data:
+    read_prompt: true
+    read_response: true
+  secrets:
+    read:
+      - CODEX_API_KEY
+      - OPENAI_API_KEY

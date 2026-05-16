@@ -14,6 +14,7 @@ use (
 	./plugins/router-consul
 	./plugins/router-litellm
 	./plugins/router-weighted
+	./plugins/upstream-codex
 	./plugins/upstream-openai
 	./sdk
 )
