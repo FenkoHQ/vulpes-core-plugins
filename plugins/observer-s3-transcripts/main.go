@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type plugin struct {
@@ -32,7 +33,11 @@ type plugin struct {
 	storeEvents    bool
 	gzip           bool
 	pretty         bool
+	databaseURL    string
+	databaseTable  string
+	databaseAuto   bool
 	client         *s3.Client
+	pg             *pgxpool.Pool
 }
 
 type transcriptObject struct {
@@ -76,6 +81,12 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	if v, ok := cfg["pretty"].(bool); ok {
 		p.pretty = v
 	}
+	p.databaseURL = firstString(cfg["database_url"], cfg["postgres_url"], secrets["TRANSCRIPTS_DATABASE_URL"], secrets["DATABASE_URL"])
+	p.databaseTable = firstString(cfg["database_table"], "vulpes_transcripts")
+	p.databaseAuto = true
+	if v, ok := cfg["database_auto_create"].(bool); ok {
+		p.databaseAuto = v
+	}
 	if p.bucket == "" {
 		return fmt.Errorf("bucket is required")
 	}
@@ -95,6 +106,20 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 		return err
 	}
 	p.client = s3.NewFromConfig(awsCfg, func(o *s3.Options) { o.UsePathStyle = p.forcePathStyle })
+	if p.databaseURL != "" {
+		pool, err := pgxpool.New(ctx, p.databaseURL)
+		if err != nil {
+			return err
+		}
+		if err := pool.Ping(ctx); err != nil {
+			pool.Close()
+			return err
+		}
+		p.pg = pool
+		if p.databaseAuto {
+			return p.createTranscriptSchema(ctx)
+		}
+	}
 	return nil
 }
 
@@ -106,6 +131,8 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 	storeAll := p.storeEvents
 	gzipEnabled := p.gzip
 	pretty := p.pretty
+	pg := p.pg
+	databaseTable := p.databaseTable
 	p.mu.Unlock()
 	if client == nil {
 		return nil
@@ -120,10 +147,11 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 			return err
 		}
 		key := transcriptKey(prefix, ev, gzipEnabled)
+		storedBody := body
 		input := &s3.PutObjectInput{
 			Bucket:      aws.String(bucket),
 			Key:         aws.String(key),
-			Body:        bytes.NewReader(body),
+			Body:        bytes.NewReader(storedBody),
 			ContentType: aws.String("application/json"),
 		}
 		if gzipEnabled {
@@ -131,15 +159,93 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 			if err != nil {
 				return err
 			}
-			input.Body = bytes.NewReader(compressed)
+			storedBody = compressed
+			input.Body = bytes.NewReader(storedBody)
 			input.ContentEncoding = aws.String("gzip")
 		}
 		_, err = client.PutObject(ctx, input)
 		if err != nil {
 			return fmt.Errorf("put transcript %s/%s: %w", bucket, key, err)
 		}
+		if pg != nil {
+			if err := indexTranscript(ctx, pg, databaseTable, ev, obj, bucket, key, len(body), len(storedBody), gzipEnabled); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func (p *plugin) createTranscriptSchema(ctx context.Context) error {
+	q := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
+  request_id text NOT NULL,
+  event_type text NOT NULL,
+  tenant_id text NULL,
+  timestamp_unix_nano bigint NOT NULL,
+  stored_at timestamptz NOT NULL DEFAULT now(),
+  provider text NULL,
+  model text NULL,
+  route_provider text NULL,
+  route_model text NULL,
+  input_tokens bigint NOT NULL DEFAULT 0,
+  output_tokens bigint NOT NULL DEFAULT 0,
+  total_tokens bigint NOT NULL DEFAULT 0,
+  cost_usd double precision NOT NULL DEFAULT 0,
+  bucket text NOT NULL,
+  object_key text NOT NULL,
+  uncompressed_bytes integer NOT NULL DEFAULT 0,
+  stored_bytes integer NOT NULL DEFAULT 0,
+  gzip boolean NOT NULL DEFAULT true,
+  properties jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error jsonb NOT NULL DEFAULT '{}'::jsonb,
+  PRIMARY KEY (request_id, event_type)
+);
+CREATE INDEX IF NOT EXISTS %s_tenant_time_idx ON %s (tenant_id, timestamp_unix_nano DESC);
+CREATE INDEX IF NOT EXISTS %s_model_time_idx ON %s (model, timestamp_unix_nano DESC);
+CREATE INDEX IF NOT EXISTS %s_event_time_idx ON %s (event_type, timestamp_unix_nano DESC);
+`, pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable))
+	_, err := p.pg.Exec(ctx, q)
+	return err
+}
+
+func indexTranscript(ctx context.Context, pg *pgxpool.Pool, table string, ev sdk.GatewayEvent, obj transcriptObject, bucket, key string, uncompressedBytes, storedBytes int, gzipEnabled bool) error {
+	props, _ := json.Marshal(obj.Properties)
+	errJSON, _ := json.Marshal(obj.Error)
+	q := fmt.Sprintf(`
+INSERT INTO %s (
+  request_id, event_type, tenant_id, timestamp_unix_nano,
+  provider, model, route_provider, route_model,
+  input_tokens, output_tokens, total_tokens, cost_usd,
+  bucket, object_key, uncompressed_bytes, stored_bytes, gzip,
+  properties, error
+) VALUES (
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19::jsonb
+)
+ON CONFLICT (request_id, event_type) DO UPDATE SET
+  stored_at = now(), tenant_id = excluded.tenant_id,
+  provider = excluded.provider, model = excluded.model,
+  route_provider = excluded.route_provider, route_model = excluded.route_model,
+  input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens,
+  total_tokens = excluded.total_tokens, cost_usd = excluded.cost_usd,
+  bucket = excluded.bucket, object_key = excluded.object_key,
+  uncompressed_bytes = excluded.uncompressed_bytes, stored_bytes = excluded.stored_bytes,
+  gzip = excluded.gzip, properties = excluded.properties, error = excluded.error`, pgIdent(table))
+	_, err := pg.Exec(ctx, q,
+		ev.RequestID, ev.EventType, ev.TenantID, ev.TimestampUnixNano,
+		ev.Usage.ProviderInstance, ev.Usage.ProviderModel, obj.Properties["route_provider"], obj.Properties["route_model"],
+		ev.Usage.InputTokens, ev.Usage.OutputTokens, ev.Usage.TotalTokens, ev.Usage.CostUSD,
+		bucket, key, uncompressedBytes, storedBytes, gzipEnabled,
+		string(props), string(errJSON),
+	)
+	return err
+}
+
+func pgIdent(s string) string {
+	if s == "" {
+		s = "vulpes_transcripts"
+	}
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 func buildTranscript(ev sdk.GatewayEvent) transcriptObject {
@@ -231,9 +337,9 @@ func main() {
 			Name:         "observer-s3-transcripts",
 			Version:      "0.1.0",
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityObserver, Name: "s3-transcripts", Version: "0.1.0"}},
-			Permissions:  sdk.Permissions{SecretNames: []string{"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
+			Permissions:  sdk.Permissions{SecretNames: []string{"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "TRANSCRIPTS_DATABASE_URL", "DATABASE_URL"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
-		Schema:     `{"type":"object","required":["bucket"],"properties":{"bucket":{"type":"string"},"prefix":{"type":"string"},"endpoint":{"type":"string"},"region":{"type":"string"},"access_key_id":{"type":"string"},"secret_access_key":{"type":"string"},"session_token":{"type":"string"},"force_path_style":{"type":"boolean"},"store_all_events":{"type":"boolean"},"gzip":{"type":"boolean"},"pretty":{"type":"boolean"}}}`,
+		Schema:     `{"type":"object","required":["bucket"],"properties":{"bucket":{"type":"string"},"prefix":{"type":"string"},"endpoint":{"type":"string"},"region":{"type":"string"},"access_key_id":{"type":"string"},"secret_access_key":{"type":"string"},"session_token":{"type":"string"},"force_path_style":{"type":"boolean"},"store_all_events":{"type":"boolean"},"gzip":{"type":"boolean"},"pretty":{"type":"boolean"},"database_url":{"type":"string"},"postgres_url":{"type":"string"},"database_table":{"type":"string"},"database_auto_create":{"type":"boolean"}}}`,
 		Configurer: p,
 		Observer:   p,
 	}
