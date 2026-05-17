@@ -24,6 +24,16 @@ config_schema:
     postgres_url: {type: string, secret: true}
     database_table: {type: string}
     database_auto_create: {type: boolean}
+    bypass_tenant_ids:
+      oneOf:
+        - type: string
+        - type: array
+          items: {type: string}
+    stealth_tenant_ids:
+      oneOf:
+        - type: string
+        - type: array
+          items: {type: string}
 permissions:
   network:
     outbound:

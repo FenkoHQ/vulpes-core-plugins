@@ -47,6 +47,18 @@ func TestTranscriptKey(t *testing.T) {
 	}
 }
 
+func TestParseTenantSet(t *testing.T) {
+	set := parseTenantSet("stealth, internal ", []any{"tenant-a", " tenant-b "})
+	for _, tenantID := range []string{"stealth", "internal", "tenant-a", "tenant-b"} {
+		if !shouldBypassTenant(tenantID, set) {
+			t.Fatalf("expected tenant %q to bypass", tenantID)
+		}
+	}
+	if shouldBypassTenant("regular", set) {
+		t.Fatal("regular tenant should not bypass")
+	}
+}
+
 func TestGzipBytesRoundTrip(t *testing.T) {
 	body := []byte(`{"hello":"world","repeated":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
 	gz, err := gzipBytes(body)

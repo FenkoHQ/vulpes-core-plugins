@@ -33,11 +33,12 @@ type plugin struct {
 	storeEvents    bool
 	gzip           bool
 	pretty         bool
-	databaseURL    string
-	databaseTable  string
-	databaseAuto   bool
-	client         *s3.Client
-	pg             *pgxpool.Pool
+	databaseURL       string
+	databaseTable     string
+	databaseAuto      bool
+	bypassTenantIDs  map[string]struct{}
+	client            *s3.Client
+	pg                *pgxpool.Pool
 }
 
 type transcriptObject struct {
@@ -83,6 +84,7 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	}
 	p.databaseURL = firstString(cfg["database_url"], cfg["postgres_url"], secrets["TRANSCRIPTS_DATABASE_URL"], secrets["DATABASE_URL"])
 	p.databaseTable = firstString(cfg["database_table"], "vulpes_transcripts")
+	p.bypassTenantIDs = parseTenantSet(cfg["bypass_tenant_ids"], cfg["stealth_tenant_ids"])
 	p.databaseAuto = true
 	if v, ok := cfg["database_auto_create"].(bool); ok {
 		p.databaseAuto = v
@@ -134,11 +136,15 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 	pretty := p.pretty
 	pg := p.pg
 	databaseTable := p.databaseTable
+	bypassTenantIDs := copyTenantSet(p.bypassTenantIDs)
 	p.mu.Unlock()
 	if client == nil {
 		return nil
 	}
 	for _, ev := range events {
+		if shouldBypassTenant(ev.TenantID, bypassTenantIDs) {
+			continue
+		}
 		if !storeAll && ev.EventType != "request.completed" && ev.EventType != "request.failed" {
 			continue
 		}
@@ -251,6 +257,50 @@ func pgIdent(s string) string {
 		s = "vulpes_transcripts"
 	}
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
+func parseTenantSet(values ...any) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, value := range values {
+		switch v := value.(type) {
+		case string:
+			addTenants(out, v)
+		case []any:
+			for _, item := range v {
+				addTenants(out, stringValue(item))
+			}
+		case []string:
+			for _, item := range v {
+				addTenants(out, item)
+			}
+		}
+	}
+	return out
+}
+
+func addTenants(out map[string]struct{}, raw string) {
+	for _, item := range strings.Split(raw, ",") {
+		tenantID := strings.TrimSpace(item)
+		if tenantID != "" {
+			out[tenantID] = struct{}{}
+		}
+	}
+}
+
+func copyTenantSet(in map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(in))
+	for tenantID := range in {
+		out[tenantID] = struct{}{}
+	}
+	return out
+}
+
+func shouldBypassTenant(tenantID string, bypassTenantIDs map[string]struct{}) bool {
+	if tenantID == "" || len(bypassTenantIDs) == 0 {
+		return false
+	}
+	_, ok := bypassTenantIDs[tenantID]
+	return ok
 }
 
 func buildTranscript(ev sdk.GatewayEvent) transcriptObject {

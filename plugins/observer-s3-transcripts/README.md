@@ -30,6 +30,7 @@ plugins:
       secret_access_key: ${secret:S3_SECRET_ACCESS_KEY}
       force_path_style: true
       gzip: true
+      bypass_tenant_ids: stealth,breakglass
       database_url: ${secret:TRANSCRIPTS_DATABASE_URL} # optional index
       database_table: vulpes_transcripts
 ```
@@ -43,5 +44,7 @@ Objects are written as:
 ```
 
 By default it stores `request.completed` and `request.failed`. Set `store_all_events: true` to store every observer event.
+
+Set `bypass_tenant_ids` (or the alias `stealth_tenant_ids`) to a comma-separated string or string array to skip object storage and Postgres indexing for specific tenants.
 
 If `database_url` is configured, the plugin also writes an index row to Postgres containing tenant/model/usage/object-key/byte-size metadata and JSONB properties/errors. The full transcript remains in R2/S3.
