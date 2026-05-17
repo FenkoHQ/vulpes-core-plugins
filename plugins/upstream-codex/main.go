@@ -141,7 +141,11 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 
 func (p *plugin) ListModels(ctx context.Context) ([]sdk.ModelInfo, error) {
 	if p.backendMode {
-		return []sdk.ModelInfo{{ID: "gpt-5.3-codex", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.3-codex", SupportsStreaming: true, SupportsTools: true, Healthy: true}, {ID: "gpt-5.4", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.4", SupportsStreaming: true, SupportsTools: true, Healthy: true}}, nil
+		return []sdk.ModelInfo{
+			{ID: "gpt-5.5", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.5", SupportsStreaming: true, SupportsTools: true, Healthy: true},
+			{ID: "gpt-5.4", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.4", SupportsStreaming: true, SupportsTools: true, Healthy: true},
+			{ID: "gpt-5.3-codex", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.3-codex", SupportsStreaming: true, SupportsTools: true, Healthy: true},
+		}, nil
 	}
 	do := func() (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/models", nil)

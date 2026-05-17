@@ -43,7 +43,7 @@ OAuth-env config, matching Codex CLI style ChatGPT OAuth tokens:
 
 `oauth_env` defaults to the ChatGPT Codex backend (`https://chatgpt.com/backend-api/codex`), which requires `store: false` and streaming Responses format. Refreshed tokens are kept in plugin memory only. If the upstream rotates refresh tokens, update the rendered env secret before restarting the service.
 
-Example model alias:
+Example model aliases:
 
 ```yaml
 models:
@@ -51,7 +51,12 @@ models:
     codex:
       candidates:
         - provider: codex
-          model: gpt-5-codex
+          model: gpt-5.3-codex
+          weight: 100
+    gpt-5.5:
+      candidates:
+        - provider: codex
+          model: gpt-5.5
           weight: 100
 ```
 
