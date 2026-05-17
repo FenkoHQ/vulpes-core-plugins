@@ -33,6 +33,29 @@ func TestMetricsRender(t *testing.T) {
 	}
 }
 
+func TestModelCatalogMetric(t *testing.T) {
+	p := newPlugin()
+	if err := p.Configure(context.Background(), map[string]any{
+		"model_catalog": []any{
+			map[string]any{
+				"model":          "gpt-5.5",
+				"provider":       "codex",
+				"upstream_model": "gpt-5.5",
+				"base_url":       "https://chatgpt.com/backend-api/codex",
+				"endpoint":       "http://vulpes-gateway.service.den.internal:18088/v1/chat/completions",
+			},
+		},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	p.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	want := `vulpes_gateway_model_info{base_url="https://chatgpt.com/backend-api/codex",endpoint="http://vulpes-gateway.service.den.internal:18088/v1/chat/completions",model="gpt-5.5",provider="codex",upstream_model="gpt-5.5"} 1`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Fatalf("model catalog metric missing %q\n%s", want, rec.Body.String())
+	}
+}
+
 func TestTenantLabelsOptIn(t *testing.T) {
 	p := newPlugin()
 	p.enableTenantLabels = true

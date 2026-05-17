@@ -20,6 +20,7 @@ type plugin struct {
 	namespace          string
 	enableTenantLabels bool
 	serverStarted      bool
+	modelCatalog       []modelInfo
 
 	events         map[labelKey]float64
 	usageInput     map[usageKey]float64
@@ -44,6 +45,14 @@ type usageKey struct {
 type resultKey struct {
 	Status   string
 	TenantID string
+}
+
+type modelInfo struct {
+	Model         string
+	Provider      string
+	UpstreamModel string
+	BaseURL       string
+	Endpoint      string
 }
 
 func newPlugin() *plugin {
@@ -76,6 +85,9 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	}
 	if v, ok := cfg["enable_tenant_labels"].(bool); ok {
 		p.enableTenantLabels = v
+	}
+	if catalog, ok := parseModelCatalog(cfg["model_catalog"]); ok {
+		p.modelCatalog = catalog
 	}
 	start := !p.serverStarted
 	if start {
@@ -144,6 +156,18 @@ func (p *plugin) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		writeSample(w, ns+"_events_total", labels, p.events[key])
 	}
 
+	writeHelp(w, ns+"_model_info", "Configured routable model aliases and access metadata. Value is always 1.", "gauge")
+	for _, model := range sortedModelInfo(p.modelCatalog) {
+		labels := map[string]string{
+			"model":          model.Model,
+			"provider":       model.Provider,
+			"upstream_model": model.UpstreamModel,
+			"base_url":       model.BaseURL,
+			"endpoint":       model.Endpoint,
+		}
+		writeSample(w, ns+"_model_info", labels, 1)
+	}
+
 	writeHelp(w, ns+"_requests_total", "Gateway request results observed by this plugin.", "counter")
 	for _, key := range sortedResultKeys(p.requestResults) {
 		labels := map[string]string{"status": key.Status}
@@ -157,6 +181,32 @@ func (p *plugin) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeUsageMap(w, ns+"_usage_output_tokens_total", "Output tokens observed by this plugin.", p.usageOutput, p.enableTenantLabels)
 	writeUsageMap(w, ns+"_usage_total_tokens_total", "Total tokens observed by this plugin.", p.usageTotal, p.enableTenantLabels)
 	writeUsageMap(w, ns+"_usage_cost_usd_total", "Estimated/actual cost in USD observed by this plugin.", p.usageCostUSD, p.enableTenantLabels)
+}
+
+func parseModelCatalog(v any) ([]modelInfo, bool) {
+	items, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	catalog := make([]modelInfo, 0, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		info := modelInfo{
+			Model:         stringValue(m["model"]),
+			Provider:      stringValue(m["provider"]),
+			UpstreamModel: stringValue(m["upstream_model"]),
+			BaseURL:       stringValue(m["base_url"]),
+			Endpoint:      stringValue(m["endpoint"]),
+		}
+		if info.Model == "" {
+			continue
+		}
+		catalog = append(catalog, info)
+	}
+	return catalog, true
 }
 
 func writeUsageMap(w http.ResponseWriter, name, help string, values map[usageKey]float64, tenant bool) {
@@ -210,6 +260,20 @@ func sortedLabelKeys(m map[labelKey]float64) []labelKey {
 		return keys[i].EventType < keys[j].EventType
 	})
 	return keys
+}
+
+func sortedModelInfo(models []modelInfo) []modelInfo {
+	sorted := append([]modelInfo(nil), models...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Model != sorted[j].Model {
+			return sorted[i].Model < sorted[j].Model
+		}
+		if sorted[i].Provider != sorted[j].Provider {
+			return sorted[i].Provider < sorted[j].Provider
+		}
+		return sorted[i].UpstreamModel < sorted[j].UpstreamModel
+	})
+	return sorted
 }
 
 func sortedUsageKeys(m map[usageKey]float64) []usageKey {
