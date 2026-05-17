@@ -97,6 +97,7 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(p.region),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(p.accessKey, p.secretKey, p.sessionToken)),
+		config.WithRequestChecksumCalculation(aws.RequestChecksumCalculationWhenRequired),
 	}
 	if p.endpoint != "" {
 		opts = append(opts, config.WithBaseEndpoint(p.endpoint))
