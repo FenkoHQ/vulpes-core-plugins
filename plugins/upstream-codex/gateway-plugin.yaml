@@ -7,10 +7,15 @@ capabilities:
   - upstream_provider
 config_schema:
   type: object
-  required: [api_key]
   properties:
     base_url: {type: string}
+    auth_mode: {type: string, enum: [api_key, oauth_env]}
     api_key: {type: string, secret: true}
+    access_token: {type: string, secret: true}
+    refresh_token: {type: string, secret: true}
+    oauth_client_id: {type: string}
+    oauth_token_url: {type: string}
+    account_id: {type: string}
     organization: {type: string}
     project: {type: string}
     reasoning_effort: {type: string, enum: [minimal, low, medium, high]}
@@ -25,6 +30,7 @@ permissions:
   network:
     outbound:
       - api.openai.com:443
+      - auth.openai.com:443
   data:
     read_prompt: true
     read_response: true
@@ -32,3 +38,6 @@ permissions:
     read:
       - CODEX_API_KEY
       - OPENAI_API_KEY
+      - CODEX_ACCESS_TOKEN
+      - CODEX_REFRESH_TOKEN
+      - CODEX_ACCOUNT_ID

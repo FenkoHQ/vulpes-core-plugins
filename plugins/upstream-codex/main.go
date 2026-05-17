@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FenkoHQ/vulpes-core-plugins/sdk"
@@ -17,18 +19,31 @@ import (
 
 type plugin struct {
 	baseURL         string
+	authMode        string
 	apiKey          string
+	accessToken     string
+	refreshToken    string
+	oauthClientID   string
+	oauthTokenURL   string
+	accountID       string
 	organization    string
 	project         string
 	reasoningEffort string
 	serviceTier     string
 	include         []string
 	http            *http.Client
+	mu              sync.Mutex
 }
 
 func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[string]string) error {
 	p.baseURL = strings.TrimRight(stringValue(cfg["base_url"]), "/")
+	p.authMode = stringValue(cfg["auth_mode"])
 	p.apiKey = stringValue(cfg["api_key"])
+	p.accessToken = stringValue(cfg["access_token"])
+	p.refreshToken = stringValue(cfg["refresh_token"])
+	p.oauthClientID = firstString(stringValue(cfg["oauth_client_id"]), "app_EMoamEEZ73f0CkXaXp7hrann")
+	p.oauthTokenURL = firstString(stringValue(cfg["oauth_token_url"]), "https://auth.openai.com/oauth/token")
+	p.accountID = stringValue(cfg["account_id"])
 	p.organization = stringValue(cfg["organization"])
 	p.project = stringValue(cfg["project"])
 	p.reasoningEffort = stringValue(cfg["reasoning_effort"])
@@ -37,8 +52,24 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	if p.baseURL == "" {
 		p.baseURL = "https://api.openai.com/v1"
 	}
-	if p.apiKey == "" {
-		return fmt.Errorf("api_key is required")
+	if p.authMode == "" {
+		if p.apiKey != "" {
+			p.authMode = "api_key"
+		} else {
+			p.authMode = "oauth_env"
+		}
+	}
+	switch p.authMode {
+	case "api_key":
+		if p.apiKey == "" {
+			return fmt.Errorf("api_key is required when auth_mode=api_key")
+		}
+	case "oauth_env":
+		if p.accessToken == "" && p.refreshToken == "" {
+			return fmt.Errorf("access_token or refresh_token is required when auth_mode=oauth_env")
+		}
+	default:
+		return fmt.Errorf("unsupported auth_mode %q", p.authMode)
 	}
 	timeout := 180 * time.Second
 	if v, ok := cfg["timeout_seconds"].(float64); ok && v > 0 {
@@ -58,16 +89,31 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 	if req.Properties["base_url"] != "" {
 		baseURL = strings.TrimRight(req.Properties["base_url"], "/")
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/responses", bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
+	do := func() (*http.Response, error) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/responses", bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		if err := p.addHeaders(ctx, httpReq); err != nil {
+			return nil, err
+		}
+		return p.http.Do(httpReq)
 	}
-	p.addHeaders(httpReq)
-	resp, err := p.http.Do(httpReq)
+	resp, err := do()
 	if err != nil {
 		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
 	}
 	defer resp.Body.Close()
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && p.canRefresh() {
+		_ = resp.Body.Close()
+		if err := p.refreshOAuthToken(ctx); err == nil {
+			resp, err = do()
+			if err != nil {
+				return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+			}
+			defer resp.Body.Close()
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg := readLimit(resp.Body, 4096)
 		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}}, nil
@@ -83,19 +129,31 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 }
 
 func (p *plugin) ListModels(ctx context.Context) ([]sdk.ModelInfo, error) {
-	if p.apiKey == "" {
-		return nil, nil
+	do := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/models", nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := p.addHeaders(ctx, req); err != nil {
+			return nil, err
+		}
+		return p.http.Do(req)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/models", nil)
-	if err != nil {
-		return nil, err
-	}
-	p.addHeaders(req)
-	resp, err := p.http.Do(req)
+	resp, err := do()
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && p.canRefresh() {
+		_ = resp.Body.Close()
+		if err := p.refreshOAuthToken(ctx); err == nil {
+			resp, err = do()
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+		}
+	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, fmt.Errorf("codex list models: %s", resp.Status)
 	}
@@ -283,8 +341,12 @@ func firstFloatProp(props map[string]string, keys ...string) float64 {
 	return 0
 }
 
-func (p *plugin) addHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+func (p *plugin) addHeaders(ctx context.Context, req *http.Request) error {
+	token, err := p.bearerToken(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	if p.organization != "" {
 		req.Header.Set("OpenAI-Organization", p.organization)
@@ -292,6 +354,91 @@ func (p *plugin) addHeaders(req *http.Request) {
 	if p.project != "" {
 		req.Header.Set("OpenAI-Project", p.project)
 	}
+	if p.accountID != "" {
+		req.Header.Set("ChatGPT-Account-Id", p.accountID)
+	}
+	return nil
+}
+
+func (p *plugin) bearerToken(ctx context.Context) (string, error) {
+	if p.authMode == "api_key" {
+		return p.apiKey, nil
+	}
+	p.mu.Lock()
+	token := p.accessToken
+	refresh := p.refreshToken
+	p.mu.Unlock()
+	if token != "" {
+		return token, nil
+	}
+	if refresh == "" {
+		return "", fmt.Errorf("oauth access token is empty and refresh token is not configured")
+	}
+	if err := p.refreshOAuthToken(ctx); err != nil {
+		return "", err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.accessToken == "" {
+		return "", fmt.Errorf("oauth refresh did not return an access token")
+	}
+	return p.accessToken, nil
+}
+
+func (p *plugin) canRefresh() bool {
+	if p.authMode != "oauth_env" {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.refreshToken != ""
+}
+
+func (p *plugin) refreshOAuthToken(ctx context.Context) error {
+	p.mu.Lock()
+	refresh := p.refreshToken
+	clientID := p.oauthClientID
+	tokenURL := p.oauthTokenURL
+	p.mu.Unlock()
+	if refresh == "" {
+		return fmt.Errorf("oauth refresh token is not configured")
+	}
+	form := url.Values{}
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refresh)
+	if clientID != "" {
+		form.Set("client_id", clientID)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := p.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("refresh oauth token: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("refresh oauth token: %s: %s", resp.Status, readLimit(resp.Body, 2048))
+	}
+	var out struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return fmt.Errorf("decode oauth token refresh: %w", err)
+	}
+	if out.AccessToken == "" {
+		return fmt.Errorf("refresh oauth token: response omitted access_token")
+	}
+	p.mu.Lock()
+	p.accessToken = out.AccessToken
+	if out.RefreshToken != "" {
+		p.refreshToken = out.RefreshToken
+	}
+	p.mu.Unlock()
+	return nil
 }
 
 type responsesStreamEvent struct {
@@ -430,9 +577,9 @@ func main() {
 			Name:         "upstream-codex",
 			Version:      "0.1.0",
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityUpstreamProvider, Name: "codex-responses", Version: "0.1.0"}},
-			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443"}, SecretNames: []string{"CODEX_API_KEY", "OPENAI_API_KEY"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
+			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443", "auth.openai.com:443"}, SecretNames: []string{"CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_REFRESH_TOKEN", "CODEX_ACCOUNT_ID"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
-		Schema:           `{"type":"object","required":["api_key"],"properties":{"base_url":{"type":"string"},"api_key":{"type":"string","secret":true},"organization":{"type":"string"},"project":{"type":"string"},"reasoning_effort":{"type":"string"},"service_tier":{"type":"string"},"include":{"type":["array","string"],"items":{"type":"string"}},"timeout_seconds":{"type":"number"}}}`,
+		Schema:           `{"type":"object","properties":{"base_url":{"type":"string"},"auth_mode":{"type":"string","enum":["api_key","oauth_env"]},"api_key":{"type":"string","secret":true},"access_token":{"type":"string","secret":true},"refresh_token":{"type":"string","secret":true},"oauth_client_id":{"type":"string"},"oauth_token_url":{"type":"string"},"account_id":{"type":"string"},"organization":{"type":"string"},"project":{"type":"string"},"reasoning_effort":{"type":"string"},"service_tier":{"type":"string"},"include":{"type":["array","string"],"items":{"type":"string"}},"timeout_seconds":{"type":"number"}}}`,
 		Configurer:       p,
 		UpstreamProvider: p,
 	}
