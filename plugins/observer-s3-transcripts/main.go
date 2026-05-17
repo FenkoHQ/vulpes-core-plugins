@@ -177,6 +177,10 @@ func (p *plugin) Emit(ctx context.Context, events []sdk.GatewayEvent) error {
 }
 
 func (p *plugin) createTranscriptSchema(ctx context.Context) error {
+	tableIdent := pgIdent(p.databaseTable)
+	tenantIndexIdent := pgIdent(p.databaseTable + "_tenant_time_idx")
+	modelIndexIdent := pgIdent(p.databaseTable + "_model_time_idx")
+	eventIndexIdent := pgIdent(p.databaseTable + "_event_time_idx")
 	q := fmt.Sprintf(`
 CREATE TABLE IF NOT EXISTS %s (
   request_id text NOT NULL,
@@ -201,10 +205,10 @@ CREATE TABLE IF NOT EXISTS %s (
   error jsonb NOT NULL DEFAULT '{}'::jsonb,
   PRIMARY KEY (request_id, event_type)
 );
-CREATE INDEX IF NOT EXISTS %s_tenant_time_idx ON %s (tenant_id, timestamp_unix_nano DESC);
-CREATE INDEX IF NOT EXISTS %s_model_time_idx ON %s (model, timestamp_unix_nano DESC);
-CREATE INDEX IF NOT EXISTS %s_event_time_idx ON %s (event_type, timestamp_unix_nano DESC);
-`, pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable), pgIdent(p.databaseTable))
+CREATE INDEX IF NOT EXISTS %s ON %s (tenant_id, timestamp_unix_nano DESC);
+CREATE INDEX IF NOT EXISTS %s ON %s (model, timestamp_unix_nano DESC);
+CREATE INDEX IF NOT EXISTS %s ON %s (event_type, timestamp_unix_nano DESC);
+`, tableIdent, tenantIndexIdent, tableIdent, modelIndexIdent, tableIdent, eventIndexIdent, tableIdent)
 	_, err := p.pg.Exec(ctx, q)
 	return err
 }
