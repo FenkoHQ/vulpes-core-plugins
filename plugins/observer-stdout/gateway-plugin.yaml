@@ -9,5 +9,7 @@ config_schema:
   type: object
   properties:
     pretty: {type: boolean}
+    include_payloads: {type: boolean}
+    omit_payloads: {type: boolean}
 permissions:
   data: {}
