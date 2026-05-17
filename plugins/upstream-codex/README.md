@@ -31,8 +31,9 @@ OAuth-env config, matching Codex CLI style ChatGPT OAuth tokens:
   capabilities: [upstream_provider]
   fail_mode: closed
   config:
-    base_url: https://api.openai.com/v1
+    base_url: https://chatgpt.com/backend-api/codex
     auth_mode: oauth_env
+    chatgpt_backend: true
     access_token: ${secret:CODEX_ACCESS_TOKEN}
     refresh_token: ${secret:CODEX_REFRESH_TOKEN}
     account_id: ${secret:CODEX_ACCOUNT_ID}
@@ -40,7 +41,7 @@ OAuth-env config, matching Codex CLI style ChatGPT OAuth tokens:
     timeout_seconds: 180
 ```
 
-`oauth_env` keeps refreshed tokens in plugin memory only. If the upstream rotates refresh tokens, update the rendered env secret before restarting the service.
+`oauth_env` defaults to the ChatGPT Codex backend (`https://chatgpt.com/backend-api/codex`), which requires `store: false` and streaming Responses format. Refreshed tokens are kept in plugin memory only. If the upstream rotates refresh tokens, update the rendered env secret before restarting the service.
 
 Example model alias:
 

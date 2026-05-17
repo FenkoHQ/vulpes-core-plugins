@@ -26,6 +26,8 @@ type plugin struct {
 	oauthClientID   string
 	oauthTokenURL   string
 	accountID       string
+	backendMode     bool
+	instructions    string
 	organization    string
 	project         string
 	reasoningEffort string
@@ -44,19 +46,25 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	p.oauthClientID = firstString(stringValue(cfg["oauth_client_id"]), "app_EMoamEEZ73f0CkXaXp7hrann")
 	p.oauthTokenURL = firstString(stringValue(cfg["oauth_token_url"]), "https://auth.openai.com/oauth/token")
 	p.accountID = stringValue(cfg["account_id"])
+	p.backendMode = boolValue(cfg["chatgpt_backend"])
+	p.instructions = firstString(stringValue(cfg["instructions"]), "You are Codex, a concise coding assistant.")
 	p.organization = stringValue(cfg["organization"])
 	p.project = stringValue(cfg["project"])
 	p.reasoningEffort = stringValue(cfg["reasoning_effort"])
 	p.serviceTier = stringValue(cfg["service_tier"])
 	p.include = stringSlice(cfg["include"])
-	if p.baseURL == "" {
-		p.baseURL = "https://api.openai.com/v1"
-	}
 	if p.authMode == "" {
 		if p.apiKey != "" {
 			p.authMode = "api_key"
 		} else {
 			p.authMode = "oauth_env"
+		}
+	}
+	if p.baseURL == "" {
+		if p.authMode == "oauth_env" {
+			p.baseURL = "https://chatgpt.com/backend-api/codex"
+		} else {
+			p.baseURL = "https://api.openai.com/v1"
 		}
 	}
 	switch p.authMode {
@@ -67,6 +75,9 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	case "oauth_env":
 		if p.accessToken == "" && p.refreshToken == "" {
 			return fmt.Errorf("access_token or refresh_token is required when auth_mode=oauth_env")
+		}
+		if strings.Contains(p.baseURL, "chatgpt.com/backend-api/codex") {
+			p.backendMode = true
 		}
 	default:
 		return fmt.Errorf("unsupported auth_mode %q", p.authMode)
@@ -118,7 +129,7 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 		msg := readLimit(resp.Body, 4096)
 		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}}, nil
 	}
-	if req.Request.Stream {
+	if req.Request.Stream || p.backendMode {
 		return p.streamChunks(resp.Body, req), nil
 	}
 	var out responsesResponse
@@ -129,6 +140,9 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 }
 
 func (p *plugin) ListModels(ctx context.Context) ([]sdk.ModelInfo, error) {
+	if p.backendMode {
+		return []sdk.ModelInfo{{ID: "gpt-5.3-codex", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.3-codex", SupportsStreaming: true, SupportsTools: true, Healthy: true}, {ID: "gpt-5.4", Object: "model", OwnedBy: "openai", ProviderInstance: "codex", ProviderModel: "gpt-5.4", SupportsStreaming: true, SupportsTools: true, Healthy: true}}, nil
+	}
 	do := func() (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/models", nil)
 		if err != nil {
@@ -182,13 +196,17 @@ func (p *plugin) responsesRequest(req sdk.InvokeRequest) map[string]any {
 		"model": req.ProviderModel,
 		"input": messagesToResponsesInput(req.Request.Messages),
 	}
-	if req.Request.Stream {
+	if p.backendMode {
+		body["instructions"] = p.instructions
+		body["store"] = false
+		body["stream"] = true
+	} else if req.Request.Stream {
 		body["stream"] = true
 	}
 	if req.Request.Temperature != nil {
 		body["temperature"] = *req.Request.Temperature
 	}
-	if req.Request.MaxTokens != nil {
+	if req.Request.MaxTokens != nil && !p.backendMode {
 		body["max_output_tokens"] = *req.Request.MaxTokens
 	}
 	if req.Request.Tools != nil {
@@ -570,6 +588,18 @@ func parseFloat(s string) float64 {
 	return f
 }
 
+func boolValue(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		b, _ := strconv.ParseBool(strings.TrimSpace(x))
+		return b
+	default:
+		return false
+	}
+}
+
 func main() {
 	p := &plugin{baseURL: "https://api.openai.com/v1", http: &http.Client{Timeout: 180 * time.Second}}
 	s := &sdk.Service{
@@ -579,7 +609,7 @@ func main() {
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityUpstreamProvider, Name: "codex-responses", Version: "0.1.0"}},
 			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443", "auth.openai.com:443"}, SecretNames: []string{"CODEX_API_KEY", "OPENAI_API_KEY", "CODEX_ACCESS_TOKEN", "CODEX_REFRESH_TOKEN", "CODEX_ACCOUNT_ID"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
-		Schema:           `{"type":"object","properties":{"base_url":{"type":"string"},"auth_mode":{"type":"string","enum":["api_key","oauth_env"]},"api_key":{"type":"string","secret":true},"access_token":{"type":"string","secret":true},"refresh_token":{"type":"string","secret":true},"oauth_client_id":{"type":"string"},"oauth_token_url":{"type":"string"},"account_id":{"type":"string"},"organization":{"type":"string"},"project":{"type":"string"},"reasoning_effort":{"type":"string"},"service_tier":{"type":"string"},"include":{"type":["array","string"],"items":{"type":"string"}},"timeout_seconds":{"type":"number"}}}`,
+		Schema:           `{"type":"object","properties":{"base_url":{"type":"string"},"auth_mode":{"type":"string","enum":["api_key","oauth_env"]},"api_key":{"type":"string","secret":true},"access_token":{"type":"string","secret":true},"refresh_token":{"type":"string","secret":true},"oauth_client_id":{"type":"string"},"oauth_token_url":{"type":"string"},"account_id":{"type":"string"},"chatgpt_backend":{"type":"boolean"},"instructions":{"type":"string"},"organization":{"type":"string"},"project":{"type":"string"},"reasoning_effort":{"type":"string"},"service_tier":{"type":"string"},"include":{"type":["array","string"],"items":{"type":"string"}},"timeout_seconds":{"type":"number"}}}`,
 		Configurer:       p,
 		UpstreamProvider: p,
 	}

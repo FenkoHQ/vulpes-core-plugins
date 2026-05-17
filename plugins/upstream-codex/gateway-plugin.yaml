@@ -16,6 +16,8 @@ config_schema:
     oauth_client_id: {type: string}
     oauth_token_url: {type: string}
     account_id: {type: string}
+    chatgpt_backend: {type: boolean}
+    instructions: {type: string}
     organization: {type: string}
     project: {type: string}
     reasoning_effort: {type: string, enum: [minimal, low, medium, high]}
@@ -31,6 +33,7 @@ permissions:
     outbound:
       - api.openai.com:443
       - auth.openai.com:443
+      - chatgpt.com:443
   data:
     read_prompt: true
     read_response: true
