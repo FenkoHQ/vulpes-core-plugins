@@ -30,7 +30,7 @@ plugins:
       secret_access_key: ${secret:S3_SECRET_ACCESS_KEY}
       force_path_style: true
       gzip: true
-      bypass_tenant_ids: stealth,breakglass
+      bypass_tenant_ids: no-capture,breakglass
       database_url: ${secret:TRANSCRIPTS_DATABASE_URL} # optional index
       database_table: vulpes_transcripts
 ```

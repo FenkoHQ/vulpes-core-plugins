@@ -17,18 +17,18 @@ Example:
 ```yaml
 config:
   prompts:
-    - name: cveq-review-default
-      ref: cveq-review
+    - name: extension-review-default
+      ref: extension-review
       version: v1
       default: true
       mode: replace_system
       messages:
         - role: system
           content: >
-            You are reviewing extension risk for tenant {{tenant_id}}.
+            You are reviewing plugin risk for tenant {{tenant_id}}.
             Be concise and cite concrete evidence.
       properties:
-        policy: cveq-review
+        policy: extension-review
 ```
 
 The core chooses the prompt ref from `X-Gateway-Property-Context-Key`, then `X-Gateway-Property-Prompt-Ref`, then the requested model.

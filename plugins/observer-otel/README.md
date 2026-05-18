@@ -25,7 +25,7 @@ plugins:
 For collectors that require one exact OTLP/HTTP protobuf URL, set the full URL as `endpoint`, for example:
 
 ```yaml
-endpoint: http://siem.platform.cveq.top:9428/insert/opentelemetry
+endpoint: https://otel-collector.example.com/v1/traces
 ```
 
 The plugin does not attach raw prompt/response payloads to spans. If the core is configured with `observability.capture_payloads: true`, payloads are intentionally ignored by this plugin to avoid accidental telemetry leakage. Use `observer-s3-transcripts` for transcript storage.
