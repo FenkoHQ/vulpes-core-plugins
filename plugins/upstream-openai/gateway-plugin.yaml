@@ -25,3 +25,4 @@ permissions:
       - OPENAI_API_KEY
       - ALIAS_API_KEY
       - LITELLM_API_KEY
+      - NVIDIA_NIM_API_KEY

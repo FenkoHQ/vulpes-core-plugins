@@ -293,7 +293,7 @@ func main() {
 			Name:         "upstream-openai",
 			Version:      "0.1.0",
 			Capabilities: []sdk.CapabilityDescriptor{{Type: sdk.CapabilityUpstreamProvider, Name: "openai-chat-completions", Version: "0.1.0"}},
-			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443"}, SecretNames: []string{"OPENAI_API_KEY", "ALIAS_API_KEY", "LITELLM_API_KEY"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
+			Permissions:  sdk.Permissions{OutboundHosts: []string{"api.openai.com:443"}, SecretNames: []string{"OPENAI_API_KEY", "ALIAS_API_KEY", "LITELLM_API_KEY", "NVIDIA_NIM_API_KEY"}, Data: sdk.DataPermissions{ReadPrompt: true, ReadResponse: true}},
 		},
 		Schema:           `{"type":"object","required":["api_key"],"properties":{"base_url":{"type":"string"},"api_key":{"type":"string"},"organization":{"type":"string"},"timeout_seconds":{"type":"number"}}}`,
 		Configurer:       p,
