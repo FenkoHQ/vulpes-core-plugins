@@ -1,3 +1,8 @@
-bin/
-*.sock
-.DS_Store
+plugins/*/upstream-openai
+plugins/*/upstream-codex
+plugins/*/observer-*
+plugins/*/router-*
+plugins/*/authn-*
+plugins/*/cache-*
+plugins/*/ratelimit-*
+plugins/*/prompt-*
