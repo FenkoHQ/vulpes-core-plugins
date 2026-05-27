@@ -156,11 +156,15 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 			continue
 		}
 		for _, choice := range ev.Choices {
+			toolCalls := toSDKToolCalls(choice.Delta.ToolCalls)
 			content := choice.Delta.Content
-			if content == "" {
+			// Only fall back to reasoning_content if there is neither a content
+			// delta nor a tool_calls delta — otherwise the reasoning would leak
+			// into the assistant message and shadow the structured tool call.
+			if content == "" && len(toolCalls) == 0 {
 				content = choice.Delta.ReasoningContent
 			}
-			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content}, FinishReason: choice.FinishReason}}}})
+			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content, ToolCalls: toolCalls}, FinishReason: choice.FinishReason}}}})
 		}
 		if ev.Usage.TotalTokens > 0 {
 			usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: ev.Usage.PromptTokens, OutputTokens: ev.Usage.CompletionTokens, TotalTokens: ev.Usage.TotalTokens}
@@ -178,7 +182,7 @@ func (p *plugin) responseChunks(req sdk.InvokeRequest, out openAIChatResponse) [
 	chunks := make([]sdk.ResponseChunk, 0, len(out.Choices)+1)
 	for _, choice := range out.Choices {
 		content := choice.Message.Content
-		msg := sdk.ChatMessage{Role: choice.Message.Role, Content: content}
+		msg := sdk.ChatMessage{Role: choice.Message.Role, Content: content, ToolCalls: toSDKToolCalls(choice.Message.ToolCalls)}
 		ch := sdk.ChatChoice{Index: choice.Index, FinishReason: choice.FinishReason}
 		if req.Request.Stream {
 			ch.Delta = msg
@@ -224,9 +228,10 @@ type openAIStreamChunk struct {
 	Choices []struct {
 		Index int `json:"index"`
 		Delta struct {
-			Role             string `json:"role"`
-			Content          string `json:"content"`
-			ReasoningContent string `json:"reasoning_content"`
+			Role             string         `json:"role"`
+			Content          string         `json:"content"`
+			ReasoningContent string         `json:"reasoning_content"`
+			ToolCalls        []openAIToolCall `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -245,8 +250,9 @@ type openAIChatResponse struct {
 	Choices []struct {
 		Index   int `json:"index"`
 		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role      string           `json:"role"`
+			Content   string           `json:"content"`
+			ToolCalls []openAIToolCall `json:"tool_calls"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -255,6 +261,32 @@ type openAIChatResponse struct {
 		CompletionTokens int64 `json:"completion_tokens"`
 		TotalTokens      int64 `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type openAIToolCall struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+func toSDKToolCalls(in []openAIToolCall) []sdk.ToolCall {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]sdk.ToolCall, len(in))
+	for i, tc := range in {
+		out[i] = sdk.ToolCall{
+			Index:    tc.Index,
+			ID:       tc.ID,
+			Type:     tc.Type,
+			Function: sdk.ToolCallFunction{Name: tc.Function.Name, Arguments: tc.Function.Arguments},
+		}
+	}
+	return out
 }
 
 func upstreamCode(status int) string {

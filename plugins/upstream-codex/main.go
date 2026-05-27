@@ -304,6 +304,15 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 		if ev.Delta != "" {
 			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: ev.OutputIndex, Delta: sdk.ChatMessage{Role: "assistant", Content: ev.Delta}}}}})
 		}
+		// The Responses API does not stream function_call arguments through the
+		// generic Delta field — they only appear once the final response object
+		// arrives. Emit them as a single trailing delta so chat-completions
+		// clients see tool_calls before [DONE].
+		if ev.Type == "response.completed" {
+			if tc := collectToolCalls(ev.Response.Output); len(tc) > 0 {
+				chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: 0, Delta: sdk.ChatMessage{Role: "assistant", ToolCalls: tc}, FinishReason: "tool_calls"}}}})
+			}
+		}
 		if ev.Response.Usage.TotalTokens > 0 {
 			usage := usageFromResponses(req, ev.Response)
 			chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
@@ -320,9 +329,14 @@ func (p *plugin) responseChunks(req sdk.InvokeRequest, out responsesResponse) []
 	if text == "" {
 		text = collectOutputText(out.Output)
 	}
+	toolCalls := collectToolCalls(out.Output)
 	model := firstString(out.Model, req.ProviderModel)
 	id := firstString(out.ID, "resp_"+strconv.FormatInt(time.Now().UnixNano(), 36))
-	chunk := sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: id, Object: "chat.completion.chunk", Created: createdUnix(out.CreatedAt), Model: model, Choices: []sdk.ChatChoice{{Index: 0, Message: sdk.ChatMessage{Role: "assistant", Content: text}, FinishReason: finishReason(out.Status)}}}}
+	finish := finishReason(out.Status)
+	if len(toolCalls) > 0 && (finish == "stop" || finish == "") {
+		finish = "tool_calls"
+	}
+	chunk := sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: id, Object: "chat.completion.chunk", Created: createdUnix(out.CreatedAt), Model: model, Choices: []sdk.ChatChoice{{Index: 0, Message: sdk.ChatMessage{Role: "assistant", Content: text, ToolCalls: toolCalls}, FinishReason: finish}}}}
 	usage := usageFromResponses(req, out)
 	return []sdk.ResponseChunk{chunk, {Usage: &usage}}
 }
@@ -492,6 +506,30 @@ type responsesOutputItem struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
+	// Populated when Type == "function_call". The Responses API emits one
+	// output item per function call; CallID is the client-visible handle used
+	// to correlate the matching tool result back into the conversation, and
+	// matches the OpenAI Chat Completions tool_calls[].id field.
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+func collectToolCalls(output []responsesOutputItem) []sdk.ToolCall {
+	var out []sdk.ToolCall
+	for _, item := range output {
+		if item.Type != "function_call" {
+			continue
+		}
+		out = append(out, sdk.ToolCall{
+			Index:    len(out),
+			ID:       firstString(item.CallID, item.ID),
+			Type:     "function",
+			Function: sdk.ToolCallFunction{Name: item.Name, Arguments: item.Arguments},
+		})
+	}
+	return out
 }
 
 func finishReason(status string) string {

@@ -27,6 +27,28 @@ func TestMessagesToResponsesInput(t *testing.T) {
 	}
 }
 
+func TestCollectToolCalls_FromFunctionCallItems(t *testing.T) {
+	// Captured shape of a function_call output item in the OpenAI Responses
+	// API. call_id is the client-visible handle; id is the upstream's internal
+	// fc_… handle. We prefer call_id because that's what flows back as
+	// tool_call_id on the follow-up "role: tool" message.
+	raw := `{"output":[
+        {"type":"function_call","id":"fc_1","call_id":"call_abc","name":"bash","arguments":"{\"cmd\":\"ls\"}","status":"completed"},
+        {"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}
+    ]}`
+	var resp responsesResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	tcs := collectToolCalls(resp.Output)
+	if len(tcs) != 1 {
+		t.Fatalf("tool_calls = %d, want 1", len(tcs))
+	}
+	if tcs[0].ID != "call_abc" || tcs[0].Type != "function" || tcs[0].Function.Name != "bash" {
+		t.Fatalf("tool call = %+v", tcs[0])
+	}
+}
+
 func TestCollectOutputText(t *testing.T) {
 	out := []responsesOutputItem{{Content: []struct {
 		Type string `json:"type"`
