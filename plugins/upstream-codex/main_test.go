@@ -128,9 +128,14 @@ func TestOAuthRefreshAndRetry(t *testing.T) {
 	}, nil); err != nil {
 		t.Fatalf("Configure returned error: %v", err)
 	}
-	chunks, err := p.Invoke(context.Background(), sdk.InvokeRequest{ProviderModel: "gpt-5-codex", Request: sdk.ChatCompletionRequest{Messages: []sdk.ChatMessage{{Role: "user", Content: "hi"}}}})
-	if err != nil {
+	out := make(chan sdk.ResponseChunk, 16)
+	if err := p.Invoke(context.Background(), sdk.InvokeRequest{ProviderModel: "gpt-5-codex", Request: sdk.ChatCompletionRequest{Messages: []sdk.ChatMessage{{Role: "user", Content: "hi"}}}}, out); err != nil {
 		t.Fatalf("Invoke returned error: %v", err)
+	}
+	close(out)
+	var chunks []sdk.ResponseChunk
+	for c := range out {
+		chunks = append(chunks, c)
 	}
 	if !gotRefresh {
 		t.Fatal("refresh endpoint was not called")

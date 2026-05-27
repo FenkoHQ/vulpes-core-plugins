@@ -192,6 +192,30 @@ type ResponseChunk struct {
 	Error *UpstreamError       `json:"error,omitempty"`
 }
 
+// InvokeStart / InvokeNext / InvokeCancel form the streaming RPC for upstream
+// providers. Each upstream call opens a stream that the gateway pulls chunks
+// from one at a time; this preserves real time-to-first-token and upstream
+// backpressure that a single buffered Invoke return would lose.
+
+type InvokeStartResponse struct {
+	StreamID uint64 `json:"stream_id"`
+}
+
+type InvokeNextRequest struct {
+	StreamID uint64 `json:"stream_id"`
+}
+
+type InvokeNextResponse struct {
+	Chunk ResponseChunk `json:"chunk,omitempty"`
+	EOF   bool          `json:"eof,omitempty"`
+}
+
+type InvokeCancelRequest struct {
+	StreamID uint64 `json:"stream_id"`
+}
+
+type InvokeCancelResponse struct{}
+
 type AuthenticateRequest struct {
 	Context  CallContext       `json:"context"`
 	Headers  map[string]string `json:"headers"`

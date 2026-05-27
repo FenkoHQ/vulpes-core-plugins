@@ -90,11 +90,11 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	return nil
 }
 
-func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.ResponseChunk, error) {
+func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest, out chan<- sdk.ResponseChunk) error {
 	body := p.responsesRequest(req)
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	baseURL := p.baseURL
 	if req.Properties["base_url"] != "" {
@@ -112,7 +112,8 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 	}
 	resp, err := do()
 	if err != nil {
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
+		return nil
 	}
 	defer resp.Body.Close()
 	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && p.canRefresh() {
@@ -120,23 +121,27 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 		if err := p.refreshOAuthToken(ctx); err == nil {
 			resp, err = do()
 			if err != nil {
-				return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+				out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
+				return nil
 			}
 			defer resp.Body.Close()
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg := readLimit(resp.Body, 4096)
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}}, nil
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}
+		return nil
 	}
 	if req.Request.Stream || p.backendMode {
-		return p.streamChunks(resp.Body, req), nil
+		return p.streamChunks(ctx, resp.Body, req, out)
 	}
-	var out responsesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_decode_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+	var decoded responsesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_decode_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
+		return nil
 	}
-	return p.responseChunks(req, out), nil
+	p.responseChunks(req, decoded, out)
+	return nil
 }
 
 func (p *plugin) ListModels(ctx context.Context) ([]sdk.ModelInfo, error) {
@@ -283,8 +288,15 @@ func contentText(v any) string {
 	return string(b)
 }
 
-func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.ResponseChunk {
-	var chunks []sdk.ResponseChunk
+func (p *plugin) streamChunks(ctx context.Context, r io.Reader, req sdk.InvokeRequest, out chan<- sdk.ResponseChunk) error {
+	send := func(c sdk.ResponseChunk) bool {
+		select {
+		case out <- c:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 	s := bufio.NewScanner(r)
 	buf := make([]byte, 0, 1024*1024)
 	s.Buffer(buf, 8*1024*1024)
@@ -302,7 +314,9 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 			continue
 		}
 		if ev.Delta != "" {
-			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: ev.OutputIndex, Delta: sdk.ChatMessage{Role: "assistant", Content: ev.Delta}}}}})
+			if !send(sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: ev.OutputIndex, Delta: sdk.ChatMessage{Role: "assistant", Content: ev.Delta}}}}}) {
+				return nil
+			}
 		}
 		// The Responses API does not stream function_call arguments through the
 		// generic Delta field — they only appear once the final response object
@@ -310,35 +324,39 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 		// clients see tool_calls before [DONE].
 		if ev.Type == "response.completed" {
 			if tc := collectToolCalls(ev.Response.Output); len(tc) > 0 {
-				chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: 0, Delta: sdk.ChatMessage{Role: "assistant", ToolCalls: tc}, FinishReason: "tool_calls"}}}})
+				if !send(sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.Response.ID, Object: "chat.completion.chunk", Created: time.Now().Unix(), Model: firstString(ev.Response.Model, req.ProviderModel), Choices: []sdk.ChatChoice{{Index: 0, Delta: sdk.ChatMessage{Role: "assistant", ToolCalls: tc}, FinishReason: "tool_calls"}}}}) {
+					return nil
+				}
 			}
 		}
 		if ev.Response.Usage.TotalTokens > 0 {
 			usage := usageFromResponses(req, ev.Response)
-			chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
+			if !send(sdk.ResponseChunk{Usage: &usage}) {
+				return nil
+			}
 		}
 	}
 	if err := s.Err(); err != nil {
-		chunks = append(chunks, sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}})
+		send(sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}})
 	}
-	return chunks
+	return nil
 }
 
-func (p *plugin) responseChunks(req sdk.InvokeRequest, out responsesResponse) []sdk.ResponseChunk {
-	text := out.OutputText
+func (p *plugin) responseChunks(req sdk.InvokeRequest, decoded responsesResponse, out chan<- sdk.ResponseChunk) {
+	text := decoded.OutputText
 	if text == "" {
-		text = collectOutputText(out.Output)
+		text = collectOutputText(decoded.Output)
 	}
-	toolCalls := collectToolCalls(out.Output)
-	model := firstString(out.Model, req.ProviderModel)
-	id := firstString(out.ID, "resp_"+strconv.FormatInt(time.Now().UnixNano(), 36))
-	finish := finishReason(out.Status)
+	toolCalls := collectToolCalls(decoded.Output)
+	model := firstString(decoded.Model, req.ProviderModel)
+	id := firstString(decoded.ID, "resp_"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	finish := finishReason(decoded.Status)
 	if len(toolCalls) > 0 && (finish == "stop" || finish == "") {
 		finish = "tool_calls"
 	}
-	chunk := sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: id, Object: "chat.completion.chunk", Created: createdUnix(out.CreatedAt), Model: model, Choices: []sdk.ChatChoice{{Index: 0, Message: sdk.ChatMessage{Role: "assistant", Content: text, ToolCalls: toolCalls}, FinishReason: finish}}}}
-	usage := usageFromResponses(req, out)
-	return []sdk.ResponseChunk{chunk, {Usage: &usage}}
+	out <- sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: id, Object: "chat.completion.chunk", Created: createdUnix(decoded.CreatedAt), Model: model, Choices: []sdk.ChatChoice{{Index: 0, Message: sdk.ChatMessage{Role: "assistant", Content: text, ToolCalls: toolCalls}, FinishReason: finish}}}}
+	usage := usageFromResponses(req, decoded)
+	out <- sdk.ResponseChunk{Usage: &usage}
 }
 
 func collectOutputText(output []responsesOutputItem) string {

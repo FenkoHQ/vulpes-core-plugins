@@ -40,11 +40,11 @@ func (p *plugin) Configure(ctx context.Context, cfg map[string]any, secrets map[
 	return nil
 }
 
-func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.ResponseChunk, error) {
+func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest, out chan<- sdk.ResponseChunk) error {
 	body := p.openAIRequest(req)
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	baseURL := p.baseURL
 	if req.Properties["base_url"] != "" {
@@ -52,26 +52,30 @@ func (p *plugin) Invoke(ctx context.Context, req sdk.InvokeRequest) ([]sdk.Respo
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	p.addHeaders(httpReq)
 	resp, err := p.http.Do(httpReq)
 	if err != nil {
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_request_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
+		return nil
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		msg := readLimit(resp.Body, 4096)
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}}, nil
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: upstreamCode(resp.StatusCode), Message: msg, HTTPStatus: resp.StatusCode, Retryable: resp.StatusCode == 429 || resp.StatusCode >= 500, RateLimited: resp.StatusCode == 429}}
+		return nil
 	}
 	if req.Request.Stream {
-		return p.streamChunks(resp.Body, req), nil
+		return p.streamChunks(ctx, resp.Body, req, out)
 	}
-	var out openAIChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return []sdk.ResponseChunk{{Error: &sdk.UpstreamError{Code: "upstream_decode_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}}, nil
+	var decoded openAIChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_decode_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
+		return nil
 	}
-	return p.responseChunks(req, out), nil
+	p.responseChunks(req, decoded, out)
+	return nil
 }
 
 func (p *plugin) ListModels(ctx context.Context) ([]sdk.ModelInfo, error) {
@@ -137,8 +141,7 @@ func (p *plugin) openAIRequest(req sdk.InvokeRequest) map[string]any {
 	return body
 }
 
-func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.ResponseChunk {
-	var chunks []sdk.ResponseChunk
+func (p *plugin) streamChunks(ctx context.Context, r io.Reader, req sdk.InvokeRequest, out chan<- sdk.ResponseChunk) error {
 	s := bufio.NewScanner(r)
 	buf := make([]byte, 0, 1024*1024)
 	s.Buffer(buf, 8*1024*1024)
@@ -164,23 +167,30 @@ func (p *plugin) streamChunks(r io.Reader, req sdk.InvokeRequest) []sdk.Response
 			if content == "" && len(toolCalls) == 0 {
 				content = choice.Delta.ReasoningContent
 			}
-			chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content, ToolCalls: toolCalls}, FinishReason: choice.FinishReason}}}})
+			select {
+			case out <- sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: ev.ID, Object: "chat.completion.chunk", Created: ev.Created, Model: ev.Model, Choices: []sdk.ChatChoice{{Index: choice.Index, Delta: sdk.ChatMessage{Role: choice.Delta.Role, Content: content, ToolCalls: toolCalls}, FinishReason: choice.FinishReason}}}}:
+			case <-ctx.Done():
+				return nil
+			}
 		}
 		if ev.Usage.TotalTokens > 0 {
 			usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: ev.Usage.PromptTokens, OutputTokens: ev.Usage.CompletionTokens, TotalTokens: ev.Usage.TotalTokens}
 			usage.CostUSD = estimateCostUSD(req.Properties, usage)
-			chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
+			select {
+			case out <- sdk.ResponseChunk{Usage: &usage}:
+			case <-ctx.Done():
+				return nil
+			}
 		}
 	}
 	if err := s.Err(); err != nil {
-		chunks = append(chunks, sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}})
+		out <- sdk.ResponseChunk{Error: &sdk.UpstreamError{Code: "upstream_stream_failed", Message: err.Error(), HTTPStatus: 502, Retryable: true}}
 	}
-	return chunks
+	return nil
 }
 
-func (p *plugin) responseChunks(req sdk.InvokeRequest, out openAIChatResponse) []sdk.ResponseChunk {
-	chunks := make([]sdk.ResponseChunk, 0, len(out.Choices)+1)
-	for _, choice := range out.Choices {
+func (p *plugin) responseChunks(req sdk.InvokeRequest, decoded openAIChatResponse, out chan<- sdk.ResponseChunk) {
+	for _, choice := range decoded.Choices {
 		content := choice.Message.Content
 		msg := sdk.ChatMessage{Role: choice.Message.Role, Content: content, ToolCalls: toSDKToolCalls(choice.Message.ToolCalls)}
 		ch := sdk.ChatChoice{Index: choice.Index, FinishReason: choice.FinishReason}
@@ -189,12 +199,11 @@ func (p *plugin) responseChunks(req sdk.InvokeRequest, out openAIChatResponse) [
 		} else {
 			ch.Message = msg
 		}
-		chunks = append(chunks, sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: out.ID, Object: "chat.completion.chunk", Created: out.Created, Model: out.Model, Choices: []sdk.ChatChoice{ch}}})
+		out <- sdk.ResponseChunk{Chunk: &sdk.ChatCompletionChunk{ID: decoded.ID, Object: "chat.completion.chunk", Created: decoded.Created, Model: decoded.Model, Choices: []sdk.ChatChoice{ch}}}
 	}
-	usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens, TotalTokens: out.Usage.TotalTokens}
+	usage := sdk.Usage{ProviderInstance: req.Context.PluginInstance, ProviderModel: req.ProviderModel, InputTokens: decoded.Usage.PromptTokens, OutputTokens: decoded.Usage.CompletionTokens, TotalTokens: decoded.Usage.TotalTokens}
 	usage.CostUSD = estimateCostUSD(req.Properties, usage)
-	chunks = append(chunks, sdk.ResponseChunk{Usage: &usage})
-	return chunks
+	out <- sdk.ResponseChunk{Usage: &usage}
 }
 
 func estimateCostUSD(props map[string]string, usage sdk.Usage) float64 {

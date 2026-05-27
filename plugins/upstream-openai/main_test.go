@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -51,7 +52,13 @@ func TestResponseChunks_PreservesToolCalls(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	p := &plugin{}
-	chunks := p.responseChunks(sdk.InvokeRequest{ProviderModel: "alias1"}, resp)
+	out := make(chan sdk.ResponseChunk, 8)
+	p.responseChunks(sdk.InvokeRequest{ProviderModel: "alias1"}, resp, out)
+	close(out)
+	var chunks []sdk.ResponseChunk
+	for c := range out {
+		chunks = append(chunks, c)
+	}
 	if len(chunks) == 0 || chunks[0].Chunk == nil {
 		t.Fatalf("expected at least one chunk")
 	}
@@ -78,7 +85,15 @@ const aliasStreamWithToolCall = "data: {\"id\":\"x\",\"created\":1,\"model\":\"a
 
 func TestStreamChunks_PreservesToolCalls(t *testing.T) {
 	p := &plugin{}
-	chunks := p.streamChunks(strings.NewReader(aliasStreamWithToolCall), sdk.InvokeRequest{ProviderModel: "alias1"})
+	out := make(chan sdk.ResponseChunk, 8)
+	if err := p.streamChunks(context.Background(), strings.NewReader(aliasStreamWithToolCall), sdk.InvokeRequest{ProviderModel: "alias1"}, out); err != nil {
+		t.Fatalf("streamChunks: %v", err)
+	}
+	close(out)
+	var chunks []sdk.ResponseChunk
+	for c := range out {
+		chunks = append(chunks, c)
+	}
 	if len(chunks) == 0 || chunks[0].Chunk == nil {
 		t.Fatalf("expected chunk")
 	}
