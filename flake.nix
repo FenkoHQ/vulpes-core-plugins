@@ -1,0 +1,58 @@
+{
+  description = "Vulpes Core plugin bundle";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+  let
+    systems = [ "x86_64-linux" "aarch64-linux" ];
+    forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+
+    # vendorHash per plugin. Every plugin requires the in-repo sdk (a local
+    # replace), so each needs a vendor dir — null won't do. Plugins with no
+    # external deps share one hash (they vendor only the sdk). Regenerate after
+    # a dependency change with:
+    #   nix build .#<plugin> 2>&1 | grep got:
+    sdkOnly = "sha256-wyCBK+RLegi7C1cI53qmJTWWuzjpMastrBsdi5mA8oc=";
+    vendorHashes = {
+      authn-static-api-key = sdkOnly;
+      authn-postgres-api-key = "sha256-3AIDrrRRTtYsCdHXjAODicGyDiKbqRO/bDn7A1tjtqI=";
+      cache-memory = sdkOnly;
+      ratelimit-memory = sdkOnly;
+      router-weighted = sdkOnly;
+      router-litellm = sdkOnly;
+      router-consul = sdkOnly;
+      prompt-context-injector = sdkOnly;
+      prompt-template-registry = sdkOnly;
+      upstream-openai = sdkOnly;
+      upstream-codex = sdkOnly;
+      observer-stdout = sdkOnly;
+      observer-prometheus = sdkOnly;
+      observer-otel = "sha256-2W9fS9hCpocZwFz9S87zdeDvKuELe4CkAvh4D4s5icw=";
+      observer-s3-transcripts = "sha256-9YEVLq5kw9f/A6bQVxxxnUSktnBJJvyIDRAgp2OOXR4=";
+    };
+  in {
+    packages = forAllSystems (pkgs:
+      let
+        buildPlugin = name: pkgs.buildGoModule {
+          pname = name;
+          version = "0.1.0";
+          src = self;
+          modRoot = "plugins/${name}";
+          vendorHash = vendorHashes.${name};
+          subPackages = [ "." ];
+          # Repo root carries a go.work; vendoring must ignore workspace mode.
+          env.GOWORK = "off";
+        };
+        plugins = nixpkgs.lib.mapAttrs (name: _: buildPlugin name) vendorHashes;
+      in plugins // {
+        plugin-bundle = pkgs.symlinkJoin {
+          name = "vulpes-core-plugin-bundle";
+          paths = builtins.attrValues plugins;
+        };
+        default = self.packages.${pkgs.system}.plugin-bundle;
+      });
+  };
+}
