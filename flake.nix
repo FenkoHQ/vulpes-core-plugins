@@ -15,7 +15,7 @@
     # external deps share one hash (they vendor only the sdk). Regenerate after
     # a dependency change with:
     #   nix build .#<plugin> 2>&1 | grep got:
-    sdkOnly = "sha256-wyCBK+RLegi7C1cI53qmJTWWuzjpMastrBsdi5mA8oc=";
+    sdkOnly = "sha256-qPFBG7QPYh9Mtx2aMiLNcC1UtaD6fBVivaL96p503v0=";
     vendorHashes = {
       authn-static-api-key = sdkOnly;
       authn-postgres-api-key = "sha256-D8SieJ02fhtKrbHDVOb+APYYMV+IKxFmnsznKf3TXeE=";
