@@ -31,7 +31,7 @@
       observer-stdout = sdkOnly;
       observer-prometheus = sdkOnly;
       observer-otel = "sha256-z/DDxOJZlDSzek1IjhM80j8GiT2hfdU59NggU19eEoo=";
-      observer-s3-transcripts = "sha256-9YEVLq5kw9f/A6bQVxxxnUSktnBJJvyIDRAgp2OOXR4=";
+      observer-s3-transcripts = "sha256-BtPGLTPoPuW/HIbJQMw6C9S9Pau28FO/qCNc6nbcyqA=";
     };
   in {
     packages = forAllSystems (pkgs:
