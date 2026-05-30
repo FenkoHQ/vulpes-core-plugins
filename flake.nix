@@ -30,7 +30,7 @@
       upstream-codex = sdkOnly;
       observer-stdout = sdkOnly;
       observer-prometheus = sdkOnly;
-      observer-otel = "sha256-2W9fS9hCpocZwFz9S87zdeDvKuELe4CkAvh4D4s5icw=";
+      observer-otel = "sha256-z/DDxOJZlDSzek1IjhM80j8GiT2hfdU59NggU19eEoo=";
       observer-s3-transcripts = "sha256-9YEVLq5kw9f/A6bQVxxxnUSktnBJJvyIDRAgp2OOXR4=";
     };
   in {
