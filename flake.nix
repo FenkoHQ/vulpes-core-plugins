@@ -43,8 +43,14 @@
           modRoot = "plugins/${name}";
           vendorHash = vendorHashes.${name};
           subPackages = [ "." ];
-          # Repo root carries a go.work; vendoring must ignore workspace mode.
-          env.GOWORK = "off";
+          # Static, stripped binaries suitable for deployment.
+          env = {
+            # Repo root carries a go.work; vendoring must ignore workspace mode.
+            GOWORK = "off";
+            CGO_ENABLED = "0";
+          };
+          ldflags = [ "-s" "-w" ];
+          doCheck = false;
         };
         plugins = nixpkgs.lib.mapAttrs (name: _: buildPlugin name) vendorHashes;
       in plugins // {
