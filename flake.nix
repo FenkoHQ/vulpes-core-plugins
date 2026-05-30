@@ -18,7 +18,7 @@
     sdkOnly = "sha256-wyCBK+RLegi7C1cI53qmJTWWuzjpMastrBsdi5mA8oc=";
     vendorHashes = {
       authn-static-api-key = sdkOnly;
-      authn-postgres-api-key = "sha256-3AIDrrRRTtYsCdHXjAODicGyDiKbqRO/bDn7A1tjtqI=";
+      authn-postgres-api-key = "sha256-D8SieJ02fhtKrbHDVOb+APYYMV+IKxFmnsznKf3TXeE=";
       cache-memory = sdkOnly;
       ratelimit-memory = sdkOnly;
       router-weighted = sdkOnly;
