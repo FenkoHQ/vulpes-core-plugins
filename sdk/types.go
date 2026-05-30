@@ -131,7 +131,10 @@ type ChatMessage struct {
 }
 
 type ToolCall struct {
-	Index    int              `json:"index,omitempty"`
+	// Index must always be emitted: streaming clients key argument deltas by
+	// it, and index 0 (a single tool call) is the common case — omitempty
+	// would drop it and break client-side aggregation.
+	Index    int              `json:"index"`
 	ID       string           `json:"id,omitempty"`
 	Type     string           `json:"type,omitempty"`
 	Function ToolCallFunction `json:"function,omitempty"`
